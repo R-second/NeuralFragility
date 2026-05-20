@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "NeuralFragility"
+version = "0.1.0"
+description = "Compute Neural Fragility heatmaps from EEG-like time series."
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+]
+
+[tool.setuptools]
+packages = ["NeuralFragility"]
+
+[tool.setuptools.package-dir]
+NeuralFragility = "."
