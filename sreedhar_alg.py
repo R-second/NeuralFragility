@@ -155,7 +155,14 @@ def optimize_sigma2_inf_main(A, k, gamma, max_iter=20, print_progress=True, epsi
         best_theta = next_theta
     return current_xi, best_theta, log
 
-def neural_fragility_inf(A, k, gamma=0.01, max_iter=20, print_progress=True):
-    final_xi, final_theta, log = optimize_sigma2_inf_main(A, k, gamma, max_iter, print_progress=print_progress)
+def neural_fragility_inf(A, k, gamma=0.01, max_iter=20, print_progress=True, epsilon=1e-6):
+    final_xi, final_theta, log = optimize_sigma2_inf_main(
+        A,
+        k,
+        gamma,
+        max_iter,
+        print_progress=print_progress,
+        epsilon=epsilon,
+    )
     fragility = 1.0 / final_xi if final_xi != 0 else np.inf
     return fragility, final_theta, log
