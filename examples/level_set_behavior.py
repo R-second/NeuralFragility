@@ -1,23 +1,51 @@
 """Visualize the level-set iterations used in the paper's numerical tests."""
 
+from __future__ import annotations
+
 try:
     from ._bootstrap import output_path
     from .matrix_examples import get_matrix
-    from .plotting import configure_paper_matplotlib
+    from .plotting import configure_matplotlib
 except ImportError:
     from _bootstrap import output_path
     from matrix_examples import get_matrix
-    from plotting import configure_paper_matplotlib
+    from plotting import configure_matplotlib
 
 import argparse
+from os import PathLike
 from pathlib import Path
+from typing import TypeAlias
 
 import numpy as np
 
 from fragility_algorithm import compute_level_value, maximize_level_value
 
+PathLikeStr: TypeAlias = str | PathLike[str]
 
-def run_experiment(matrix_name, k, gamma_algo, grid_size, max_iter, output_file, show):
+
+def run_experiment(
+    matrix_name: str,
+    k: int,
+    gamma_algo: float,
+    grid_size: int,
+    max_iter: int,
+    output_file: PathLikeStr,
+    show: bool,
+) -> None:
+    """Run a single experiment to visualize the level-set method behavior and save the diagnostic plot.
+
+    Args:
+        matrix_name: Name of the matrix registered in `matrix_examples.py`.
+        k: Index of the channel to evaluate.
+        gamma_algo: Regularization parameter for the level-set method.
+        grid_size: Number of points to use in the reference grid search.
+        max_iter: Maximum number of iterations for the level-set method.
+        output_file: Path to the output image file.
+        show: Whether to display the figure interactively after saving.
+
+    Returns:
+        None.
+    """
     A = get_matrix(matrix_name)
 
     theta_plot = np.linspace(0, np.pi, grid_size)
@@ -41,7 +69,7 @@ def run_experiment(matrix_name, k, gamma_algo, grid_size, max_iter, output_file,
         f"Algo Max (Level Set):   {final_level:.6f} at theta = {final_theta:.4f} (inv: {1 / final_level:.4f})"
     )
 
-    plt, level_alpha = configure_paper_matplotlib(output_file, show)
+    plt, level_alpha = configure_matplotlib(output_file, show)
     plt.figure(figsize=(12, 7))
     plt.plot(theta_plot, inf_vals, "k-", linewidth=2, label=r"True $\inf \sigma_2$")
 
@@ -107,7 +135,9 @@ def run_experiment(matrix_name, k, gamma_algo, grid_size, max_iter, output_file,
         print("Test Warning: Discrepancy found (check gamma or grid resolution).")
 
 
-def main():
+def main() -> None:
+    """Parse CLI arguments and run level-set behavior visualization.
+    """
     parser = argparse.ArgumentParser(
         description="Run the paper level-set behavior check."
     )
@@ -126,7 +156,7 @@ def main():
     )
     parser.add_argument(
         "--output",
-        default=str(output_path("behaviour_check.eps")),
+        default=str(output_path("behaviour_check.png")),
         help="Output figure path.",
     )
     parser.add_argument(
