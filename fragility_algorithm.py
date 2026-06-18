@@ -1,12 +1,34 @@
-"""Core Neural Fragility algorithm."""
+"""Core Neural Fragility (or Stability Radius) level-set algorithm."""
+
+from __future__ import annotations
+
+from typing import TypeAlias
 
 import numpy as np
+from numpy.typing import NDArray
 from scipy import linalg
 from scipy.linalg import eig
 
+FloatArray: TypeAlias = NDArray[np.floating]
+ComplexArray: TypeAlias = NDArray[np.complexfloating]
+IterationLog: TypeAlias = list[dict[str, object]]
 
-def compute_level_value(transition_matrix, channel_index, theta):
-    """Evaluate the unregularized level-set objective at one angle."""
+
+def compute_level_value(
+    transition_matrix: FloatArray,
+    channel_index: int,
+    theta: float,
+) -> float:
+    """Calculate d(G_R(s)^T, G_I(s)^TR) where s = exp(i*theta).
+
+    Args:
+        transition_matrix: transition matrix of shape `(n_channels, n_channels)`.
+        channel_index: index of the channel or node to evaluate the perturbation response.
+        theta: angle on the unit circle in radians.
+
+    Returns:
+        The value of d(G_R(s)^T, G_I(s)^TR). Returns `0.0` if the linear system is singular.
+    """
     n_channels = transition_matrix.shape[0]
     point_on_unit_circle = np.exp(1j * theta)
     identity = np.eye(n_channels)
@@ -27,15 +49,30 @@ def compute_level_value(transition_matrix, channel_index, theta):
     imag_norm_sq = np.sum(imag_part**2)
 
     if imag_norm_sq < 1e-12:
-        return np.sqrt(real_norm_sq)
+        return float(np.sqrt(real_norm_sq))
 
     real_imag_dot = np.dot(real_part, imag_part)
     value_sq = real_norm_sq - (real_imag_dot**2 / imag_norm_sq)
-    return np.sqrt(np.maximum(value_sq, 0.0))
+    return float(np.sqrt(np.maximum(value_sq, 0.0)))
 
 
-def compute_regularized_level_value(transition_matrix, channel_index, theta, gamma):
-    """Evaluate the gamma-regularized level-set objective at one angle."""
+def compute_regularized_level_value(
+    transition_matrix: FloatArray,
+    channel_index: int,
+    theta: float,
+    gamma: float,
+) -> float:
+    """Calculate the second singular value of M(gamma, G(s)) where s = exp(i*theta).
+
+    Args:
+        transition_matrix: transition matrix of shape `(n_channels, n_channels)`.
+        channel_index: index of the channel or node to evaluate the perturbation response.
+        theta: angle on the unit circle in radians.
+        gamma: parameter
+
+    Returns:
+        The second singular value of M(gamma, G(s)) where s = exp(i*theta). Returns `0.0` if the linear system is singular.
+    """
     n_channels = transition_matrix.shape[0]
     point_on_unit_circle = np.exp(1j * theta)
     identity = np.eye(n_channels)
@@ -61,11 +98,26 @@ def compute_regularized_level_value(transition_matrix, channel_index, theta, gam
     sqrt_inner = (gamma + 1 / gamma) ** 2 * (imag_norm_sq**2) + 4 * real_imag_dot_sq
     correction_term = 0.5 * np.abs(gamma - 1 / gamma) * np.sqrt(sqrt_inner)
     value_sq = base_term + regularized_imag_term - correction_term
-    return np.sqrt(np.maximum(value_sq, 0.0))
+    return float(np.sqrt(np.maximum(value_sq, 0.0)))
 
 
-def solve_level_set_eigenproblem(transition_matrix, channel_index, level_value, gamma):
-    """Solve the generalized eigenproblem for one level-set iteration."""
+def solve_level_set_eigenproblem(
+    transition_matrix: FloatArray,
+    channel_index: int,
+    level_value: float,
+    gamma: float,
+) -> ComplexArray:
+    """Solve the generalized eigenvalue problem for the level-set method.
+
+    Args:
+        transition_matrix: transition matrix of shape `(n_channels, n_channels)`.
+        channel_index: index of the channel or node to evaluate the perturbation response.
+        level_value: current level-set value.
+        gamma: regularization parameter.
+
+    Returns:
+        Array of generalized eigenvalues. Returns an empty array if the problem cannot be solved.
+    """
     n_channels = transition_matrix.shape[0]
     alpha = (1 + gamma**2) / (2 * gamma)
     beta = (1 - gamma**2) / (2 * gamma)
@@ -93,12 +145,23 @@ def solve_level_set_eigenproblem(transition_matrix, channel_index, level_value, 
             [zeros, zeros, -alpha * psi, -identity],
         ]
     )
-    return eig(left_matrix, right_matrix, right=False)
+    return np.array(linalg.eig(left_matrix, right_matrix, right=False))
 
 
-def extract_unit_circle_angles(eigenvalues, tolerance=1e-4):
-    """Return unique angles for eigenvalues close to the unit circle."""
-    angles = []
+def extract_unit_circle_angles(
+    eigenvalues: ComplexArray,
+    tolerance: float = 1e-4,
+) -> FloatArray:
+    """Extract angles of eigenvalues that are close to the unit circle.
+
+    Args:
+        eigenvalues: Array of generalized eigenvalues.
+        tolerance: Tolerance for considering an eigenvalue to be on the unit circle.
+
+    Returns:
+        Ascending array of candidate angles normalized to `[0, pi]`.
+    """
+    angles: list[float] = []
     for eigenvalue in eigenvalues:
         if np.abs(np.abs(eigenvalue) - 1.0) < tolerance:
             angles.append(np.abs(np.angle(eigenvalue)))
@@ -111,15 +174,27 @@ def extract_unit_circle_angles(eigenvalues, tolerance=1e-4):
 
 
 def filter_level_crossings(
-    transition_matrix,
-    channel_index,
-    gamma,
-    level_value,
-    candidate_angles,
-    tolerance=1e-4,
-):
-    """Keep candidate angles whose regularized value matches the current level."""
-    verified_angles = []
+    transition_matrix: FloatArray,
+    channel_index: int,
+    gamma: float,
+    level_value: float,
+    candidate_angles: FloatArray,
+    tolerance: float = 1e-4,
+) -> FloatArray:
+    """Verify candidate angles from the generalized eigenvalue problem against the regularized level-set objective function.
+
+    Args:
+        transition_matrix: transition matrix of shape `(n_channels, n_channels)`.
+        channel_index: index of the channel or node to evaluate the perturbation response.
+        gamma: regularization parameter.
+        level_value: level-set value to verify against.
+        candidate_angles: candidate angles obtained from the generalized eigenvalue problem.
+        tolerance: tolerance for the consistency check with the regularized objective function.
+
+    Returns:
+        Array of verified angles.
+    """
+    verified_angles: list[float] = []
     for theta in candidate_angles:
         candidate_value = compute_regularized_level_value(
             transition_matrix,
@@ -133,12 +208,22 @@ def filter_level_crossings(
 
 
 def find_best_interval_midpoint(
-    transition_matrix,
-    channel_index,
-    crossing_angles,
-    current_level,
-):
-    """Search interval midpoints between crossings for a better objective value."""
+    transition_matrix: FloatArray,
+    channel_index: int,
+    crossing_angles: FloatArray,
+    current_level: float,
+) -> tuple[float | None, float]:
+    """Find the best midpoint angle between level-set crossings that maximizes the level-set objective function.
+
+    Args:
+        transition_matrix: transition matrix of shape `(n_channels, n_channels)`.
+        channel_index: index of the channel or node to evaluate the perturbation response.
+        crossing_angles: angles at which the current level-set crosses.
+        current_level: current best level value.
+
+    Returns:
+        Best midpoint angle and its level value. Returns `None` for the angle if no improvement is found.
+    """
     boundaries = np.concatenate(([0.0], crossing_angles, [np.pi]))
     boundaries = np.unique(boundaries)
     boundaries.sort()
@@ -163,14 +248,26 @@ def find_best_interval_midpoint(
 
 
 def maximize_level_value(
-    transition_matrix,
-    channel_index,
-    gamma,
-    max_iter=20,
-    print_progress=True,
-    epsilon=1e-6,
-):
-    """Maximize the level-set objective over theta in [0, pi]."""
+    transition_matrix: FloatArray,
+    channel_index: int,
+    gamma: float,
+    max_iter: int = 20,
+    print_progress: bool = True,
+    epsilon: float = 1e-6,
+) -> tuple[float, float, IterationLog]:
+    """Maximize the level-set objective function using the level-set method.
+
+    Args:
+        transition_matrix: transition matrix of shape `(n_channels, n_channels)`.
+        channel_index: index of the channel or node to evaluate the perturbation response.
+        gamma: regularization parameter.
+        max_iter: maximum number of level-set iterations.
+        print_progress: whether to print iteration logs to standard output.
+        epsilon: minimum improvement width for convergence criterion.
+
+    Returns:
+        Best level value, corresponding angle, and diagnostic log for each iteration.
+    """
     value_at_zero = compute_level_value(transition_matrix, channel_index, 0.0)
     value_at_pi = compute_level_value(transition_matrix, channel_index, np.pi)
 
@@ -262,15 +359,27 @@ def maximize_level_value(
     return current_level, best_theta, iteration_log
 
 
-def compute_neural_fragility(
-    transition_matrix,
-    channel_index,
-    gamma=0.01,
-    max_iter=20,
-    print_progress=True,
-    epsilon=1e-6,
-):
-    """Compute neural fragility for one channel of one transition matrix."""
+def compute_stability_radius(
+    transition_matrix: FloatArray,
+    channel_index: int,
+    gamma: float = 0.01,
+    max_iter: int = 20,
+    print_progress: bool = True,
+    epsilon: float = 1e-6,
+) -> tuple[float, float, IterationLog]:
+    """Compute the stability radius of a given channel using the level-set method.
+
+    Args:
+        transition_matrix: transition matrix of shape `(n_channels, n_channels)`.
+        channel_index: index of the channel or node to compute stability radius for.
+        gamma: regularization parameter.
+        max_iter: maximum number of level-set iterations.
+        print_progress: whether to print iteration logs to standard output.
+        epsilon: minimum improvement width for convergence criterion.
+
+    Returns:
+        Best stability radius value, corresponding angle, and diagnostic log for each iteration.
+    """
     peak_level, peak_theta, iteration_log = maximize_level_value(
         transition_matrix,
         channel_index,
@@ -279,5 +388,5 @@ def compute_neural_fragility(
         print_progress=print_progress,
         epsilon=epsilon,
     )
-    fragility = 1.0 / peak_level if peak_level != 0 else np.inf
-    return fragility, peak_theta, iteration_log
+    stability_radius = 1.0 / peak_level if peak_level != 0 else np.inf
+    return stability_radius, peak_theta, iteration_log

@@ -4,16 +4,38 @@ Most functions accept data with shape `(n_channels, n_times)`.  Functions that
 estimate one transition matrix from one window use `(n_times, n_channels)`.
 """
 
+from __future__ import annotations
+
+from os import PathLike
+from typing import Any, Literal, TypeAlias
+
 import numpy as np
-from numpy.linalg import pinv
+from numpy.typing import NDArray
 
 try:
-    from .fragility_algorithm import compute_level_value, compute_neural_fragility
+    from .fragility_algorithm import compute_level_value, compute_stability_radius
 except ImportError:
-    from fragility_algorithm import compute_level_value, compute_neural_fragility
+    from fragility_algorithm import compute_level_value, compute_stability_radius
+
+FloatArray: TypeAlias = NDArray[np.floating]
+StringArray: TypeAlias = NDArray[np.str_]
+PathLikeStr: TypeAlias = str | PathLike[str]
+FragilityMethod: TypeAlias = Literal["proposed", "grid"]
 
 
-def _get_data_and_times(raw_or_data, fs=None):
+def _get_data_and_times(
+    raw_or_data: Any,
+    fs: float | None = None,
+) -> tuple[FloatArray, float, FloatArray]:
+    """Extract data array, sampling frequency, and time points from an MNE Raw-like object or a raw data array.
+
+    Args:
+        raw_or_data: MNE Raw-like object or a raw data array of shape `(n_channels, n_times)`.
+        fs: Sampling frequency required when `raw_or_data` is a NumPy array.
+
+    Returns:
+        Data array, sampling frequency, and time points.
+    """
     if hasattr(raw_or_data, "get_data") and hasattr(raw_or_data, "info"):
         data = raw_or_data.get_data()
         sampling_frequency = float(raw_or_data.info["sfreq"])
@@ -32,8 +54,23 @@ def _get_data_and_times(raw_or_data, fs=None):
     return data, sampling_frequency, times
 
 
-def create_sliding_windows(raw_or_data, fs=None, window_size_ms=250, step_size_ms=125):
-    """Create sliding windows with shape `(n_windows, n_channels, n_samples)`."""
+def create_sliding_windows(
+    raw_or_data: Any,
+    fs: float | None = None,
+    window_size_ms: float = 250,
+    step_size_ms: float = 125,
+) -> tuple[FloatArray, FloatArray]:
+    """Create sliding windows from an MNE Raw-like object or a raw data array.
+
+    Args:
+        raw_or_data: MNE Raw-like object or a raw data array of shape `(n_channels, n_times)`.
+        fs: Sampling frequency required when `raw_or_data` is a NumPy array.
+        window_size_ms: Window length. Unit is milliseconds.
+        step_size_ms: Window step size. Unit is milliseconds.
+
+    Returns:
+        Array of windows with shape `(n_windows, n_channels, n_samples)` and center times.
+    """
     data, sampling_frequency, times = _get_data_and_times(raw_or_data, fs=fs)
     n_channels, n_times = data.shape
 
@@ -57,16 +94,18 @@ def create_sliding_windows(raw_or_data, fs=None, window_size_ms=250, step_size_m
     return windows, window_times
 
 
-def estimate_linear_dynamics_ols(samples_by_time, only_transition_matrix=False):
-    """Estimate `x(t+1) = A x(t)` by ordinary least squares.
+def estimate_linear_dynamics_ols(
+    samples_by_time: FloatArray,
+    only_transition_matrix: bool = False,
+) -> FloatArray | tuple[FloatArray, FloatArray]:
+    """Estimate linear dynamics using ordinary least squares regression.
 
-    Parameters
-    ----------
-    samples_by_time:
-        Array with shape `(n_times, n_channels)`.
-    only_transition_matrix:
-        If true, return only the transition matrix. Otherwise, also return the
-        residual covariance matrix.
+    Args:
+        samples_by_time: Array of shape `(n_times, n_channels)` representing the time series.
+        only_transition_matrix: If `True`, only the transition matrix is returned.
+
+    Returns:
+        The transition matrix. If `only_transition_matrix=False`, also returns the residual covariance matrix.
     """
     n_timepoints, _ = samples_by_time.shape
     n_transitions = n_timepoints - 1
@@ -85,15 +124,49 @@ def estimate_linear_dynamics_ols(samples_by_time, only_transition_matrix=False):
     return transition_matrix, noise_covariance
 
 
-def estimate_transition_matrix(samples_by_time):
-    """Estimate a transition matrix from `(n_times, n_channels)` samples."""
-    previous_samples = samples_by_time[:-1, :]
-    next_samples = samples_by_time[1:, :]
-    return (np.linalg.pinv(previous_samples) @ next_samples).T
+def estimate_transition_matrix(
+    samples_by_time: FloatArray,
+    l2_lambda: float = 0.0,
+) -> FloatArray:
+    """Estimate the transition matrix from a single time series window.
+
+    Args:
+        samples_by_time: Array of shape `(n_times, n_channels)` representing the time series.
+        l2_lambda: Ridge regularization coefficient. Use `0.0` for ordinary least squares.
+
+    Returns:
+        Transition matrix of shape `(n_channels, n_channels)`.
+    """
+    samples_by_time = np.asarray(samples_by_time)
+    if samples_by_time.ndim != 2:
+        raise ValueError("samples_by_time must have shape (n_times, n_channels).")
+
+    n_times, n_channels = samples_by_time.shape
+    if n_times < 2:
+        raise ValueError("samples_by_time must contain at least two time points.")
+
+    current_samples = samples_by_time[:-1, :].T
+    next_samples = samples_by_time[1:, :].T
+    regularization = l2_lambda * np.eye(n_channels)
+
+    lhs = current_samples @ current_samples.T + regularization
+    rhs = next_samples @ current_samples.T
+    return rhs @ np.linalg.pinv(lhs)
 
 
-def estimate_transition_matrices(windows, l2_lambda=1e-4):
-    """Estimate `x(t+1) = A x(t)` for each window using ridge regression."""
+def estimate_transition_matrices(
+    windows: FloatArray,
+    l2_lambda: float = 1e-4,
+) -> FloatArray:
+    """Estimate transition matrices for multiple windows.
+
+    Args:
+        windows: Array of shape `(n_windows, n_channels, n_samples)` representing the windows.
+        l2_lambda: Ridge regularization coefficient passed to `estimate_transition_matrix`.
+
+    Returns:
+        Array of transition matrices with shape `(n_windows, n_channels, n_channels)`.
+    """
     windows = np.asarray(windows)
     if windows.ndim != 3:
         raise ValueError("windows must have shape (n_windows, n_channels, n_samples).")
@@ -103,100 +176,29 @@ def estimate_transition_matrices(windows, l2_lambda=1e-4):
         raise ValueError("Each window must contain at least two samples.")
 
     transition_matrices = np.zeros((n_windows, n_channels, n_channels), dtype=float)
-    regularization = l2_lambda * np.eye(n_channels)
 
     for window_index, window in enumerate(windows):
-        current_samples = window[:, :-1]
-        next_samples = window[:, 1:]
-
-        lhs = current_samples @ current_samples.T + regularization
-        rhs = next_samples @ current_samples.T
-        transition_matrices[window_index] = rhs @ np.linalg.pinv(lhs)
-
-    return transition_matrices
-
-
-def estimate_transition_matrices_from_windows(windows, apply_svd=False, svd_log_threshold=-10):
-    """Estimate one transition matrix per window, with optional SVD projection."""
-    windows = np.asarray(windows)
-    if windows.ndim != 3:
-        raise ValueError("windows must have shape (n_windows, n_channels, n_samples).")
-
-    if not apply_svd:
-        return np.array([estimate_transition_matrix(window.T) for window in windows])
-
-    n_windows, n_channels, _ = windows.shape
-    transition_matrices = np.zeros((n_windows, n_channels, n_channels), dtype=float)
-
-    for window_index, window in enumerate(windows):
-        transition_matrices[window_index] = _estimate_svd_transition_matrix(
-            window,
-            svd_log_threshold=svd_log_threshold,
+        transition_matrices[window_index] = estimate_transition_matrix(
+            window.T,
+            l2_lambda=l2_lambda,
         )
 
     return transition_matrices
 
 
-def _estimate_svd_transition_matrix(window, svd_log_threshold=-10):
-    n_channels = window.shape[0]
-    centered_window = window - window.mean(axis=1, keepdims=True)
-    left_vectors, singular_values, right_vectors = np.linalg.svd(
-        centered_window,
-        full_matrices=False,
-    )
-    kept_components = np.where(np.log10(singular_values + 1e-16) > svd_log_threshold)[0]
+def model_fitting_errors(
+    windows: FloatArray,
+    transition_matrices: FloatArray,
+) -> FloatArray:
+    """Compute the relative prediction errors for each window given the transition matrices.
 
-    if kept_components.size == 0:
-        projection_matrix = left_vectors @ np.diag(singular_values) @ right_vectors
-        projected_samples = right_vectors.T[:, :1]
-    else:
-        n_components = len(kept_components)
-        projection_matrix = left_vectors[:, :n_components] @ np.diag(
-            singular_values[:n_components]
-        )
-        projected_samples = right_vectors[:n_components, :].T
+    Args:
+        windows: Array of shape `(n_windows, n_channels, n_samples)` representing the windows.
+        transition_matrices: Array of transition matrices with shape `(n_windows, n_channels, n_channels)`.
 
-    if projected_samples.shape[0] < 2:
-        return np.eye(n_channels)
-
-    reduced_transition = estimate_transition_matrix(projected_samples)
-    try:
-        return projection_matrix @ reduced_transition @ pinv(projection_matrix)
-    except Exception:
-        return np.eye(n_channels)
-
-
-def estimate_noise_covariances(windows, transition_matrices):
-    """Estimate residual covariance matrices for fitted linear models."""
-    windows = np.asarray(windows)
-    transition_matrices = np.asarray(transition_matrices)
-
-    if windows.ndim != 3:
-        raise ValueError("windows must have shape (n_windows, n_channels, n_samples).")
-    if (
-        transition_matrices.shape[:2] != windows.shape[:2]
-        or transition_matrices.shape[2] != windows.shape[1]
-    ):
-        raise ValueError(
-            "transition_matrices must have shape (n_windows, n_channels, n_channels)."
-        )
-
-    n_windows, n_channels, n_samples = windows.shape
-    noise_covariances = np.zeros((n_windows, n_channels, n_channels), dtype=float)
-
-    for window_index, window in enumerate(windows):
-        current_samples = window[:, :-1]
-        next_samples = window[:, 1:]
-        residuals = next_samples - transition_matrices[window_index] @ current_samples
-        noise_covariances[window_index] = (
-            residuals @ residuals.T / max(n_samples - 1, 1)
-        )
-
-    return noise_covariances
-
-
-def model_fitting_errors(windows, transition_matrices):
-    """Return relative one-step prediction errors for each window."""
+    Returns:
+        Array of relative prediction errors for each window.
+    """
     windows = np.asarray(windows)
     transition_matrices = np.asarray(transition_matrices)
     errors = np.zeros(windows.shape[0], dtype=float)
@@ -211,28 +213,20 @@ def model_fitting_errors(windows, transition_matrices):
 
     return errors
 
+def compute_stability_radius_grid_search(
+    transition_matrix: FloatArray,
+    channel_index: int,
+    num_points: int = 1000,
+) -> float:
+    """Approximate Stability Radius using grid search.
 
-def spectral_radii(transition_matrices):
-    """Return the maximum absolute eigenvalue for each matrix."""
-    transition_matrices = np.asarray(transition_matrices)
-    return np.array(
-        [
-            np.max(np.abs(np.linalg.eigvals(transition_matrix)))
-            for transition_matrix in transition_matrices
-        ]
-    )
+    Args:
+        transition_matrix: Transition matrix of shape `(n_channels, n_channels)`.
+        channel_index: Channel index for which to compute stability radius.
+        num_points: Number of grid points to evaluate on `[0, pi]`.
 
-
-def is_stable_transition_matrix(transition_matrix, tol=0.0):
-    """Return whether all eigenvalues lie inside the unit circle."""
-    return np.max(np.abs(np.linalg.eigvals(transition_matrix))) <= 1.0 + tol
-
-
-def compute_fragility_grid_search(transition_matrix, channel_index, num_points=1000):
-    """Approximate neural fragility by grid-searching `max_theta inf sigma2`.
-
-    `compute_neural_fragility` returns `1 / max_theta inf sigma2`, so this helper
-    returns the same quantity rather than the raw level-set value.
+    Returns:
+        Approximated stability radius value as the reciprocal of the maximum level value.
     """
     thetas = np.linspace(0, np.pi, num_points)
     peak_level = max(
@@ -241,16 +235,29 @@ def compute_fragility_grid_search(transition_matrix, channel_index, num_points=1
     return 1.0 / peak_level if peak_level != 0 else np.inf
 
 
-def compute_fragility_from_matrices(
-    transition_matrices,
-    gamma=0.01,
-    method="proposed",
-    grid_points=1000,
-    max_iter=20,
-    epsilon=1e-6,
-    progress=False,
-):
-    """Compute raw neural fragility with shape `(n_channels, n_windows)`."""
+def compute_stability_radius_from_matrices(
+    transition_matrices: FloatArray,
+    gamma: float = 0.01,
+    method: FragilityMethod = "proposed",
+    grid_points: int = 1000,
+    max_iter: int = 20,
+    epsilon: float = 1e-6,
+    progress: bool = False,
+) -> FloatArray:
+    """Compute Stability Radius heatmap from transition matrices.
+
+    Args:
+        transition_matrices: Array of shape `(n_windows, n_channels, n_channels)` representing the transition matrices.
+        gamma: Regularization parameter for the level set method.
+        method: Stability radius computation method, either `"proposed"` or `"grid"`.
+        grid_points: Number of grid points to use when `method="grid"`.
+        max_iter: Maximum number of iterations when `method="proposed"`.
+        epsilon: Convergence threshold when `method="proposed"`.
+        progress: Whether to display a progress bar if possible.
+
+    Returns:
+        Array of shape `(n_channels, n_windows)` representing the raw stability radius heatmap.
+    """
     transition_matrices = np.asarray(transition_matrices)
     if (
         transition_matrices.ndim != 3
@@ -261,7 +268,7 @@ def compute_fragility_from_matrices(
         )
 
     n_windows, n_channels, _ = transition_matrices.shape
-    raw_fragility = np.zeros((n_channels, n_windows), dtype=float)
+    raw_stability_radius = np.zeros((n_channels, n_windows), dtype=float)
 
     iterator = range(n_windows)
     if progress:
@@ -276,7 +283,7 @@ def compute_fragility_from_matrices(
         transition_matrix = transition_matrices[window_index]
         for channel_index in range(n_channels):
             if method == "proposed":
-                value, _, _ = compute_neural_fragility(
+                value, _, _ = compute_stability_radius(
                     transition_matrix,
                     channel_index,
                     gamma=gamma,
@@ -285,36 +292,38 @@ def compute_fragility_from_matrices(
                     epsilon=epsilon,
                 )
             elif method == "grid":
-                value = compute_fragility_grid_search(
+                value = compute_stability_radius_grid_search(
                     transition_matrix,
                     channel_index,
                     num_points=grid_points,
                 )
             else:
                 raise ValueError("method must be 'proposed' or 'grid'.")
-            raw_fragility[channel_index, window_index] = value
+            raw_stability_radius[channel_index, window_index] = value
 
-    return raw_fragility
+    return raw_stability_radius
 
 
-def compute_fragility_heatmap(
-    eeg,
-    fs,
-    window_sec=0.2,
-    step_sec=0.1,
-    gamma=0.01,
-    apply_svd=False,
-    svd_log_threshold=-10,
-    verbose=False,
-):
-    """Compute a neural fragility heatmap from EEG samples.
+def compute_stability_radius_heatmap(
+    eeg: FloatArray,
+    fs: float,
+    window_sec: float = 0.2,
+    step_sec: float = 0.1,
+    gamma: float = 0.01,
+    verbose: bool = False,
+) -> tuple[FloatArray, FloatArray]:
+    """Compute Stability Radius heatmap from EEG array.
 
-    Returns
-    -------
-    heatmap:
-        Array with shape `(n_channels, n_windows)`.
-    times:
-        Center time of each window in seconds.
+    Args:
+        eeg: EEG array of shape `(n_channels, n_times)`.
+        fs: Sampling frequency.
+        window_sec: Window length in seconds.
+        step_sec: Window step size in seconds.
+        gamma: Regularization parameter for the level set method.
+        verbose: Whether to display progress if possible.
+
+    Returns:
+        Stability Radius heatmap and the center times of each window.
     """
     if np.asarray(eeg).ndim != 2:
         raise ValueError("eeg must be 2D (n_channels, n_times)")
@@ -325,12 +334,8 @@ def compute_fragility_heatmap(
         window_size_ms=window_sec * 1000,
         step_size_ms=step_sec * 1000,
     )
-    transition_matrices = estimate_transition_matrices_from_windows(
-        windows,
-        apply_svd=apply_svd,
-        svd_log_threshold=svd_log_threshold,
-    )
-    heatmap = compute_fragility_from_matrices(
+    transition_matrices = estimate_transition_matrices(windows, l2_lambda=0.0)
+    heatmap = compute_stability_radius_from_matrices(
         transition_matrices,
         gamma=gamma,
         progress=verbose,
@@ -338,36 +343,59 @@ def compute_fragility_heatmap(
     return heatmap, times
 
 
-def normalize_fragility(raw_fragility, eps=1e-14):
-    """Normalize fragility across channels at each time window.
+def calculate_neural_fragility(raw_stability_radius: FloatArray, eps: float = 1e-14) -> FloatArray:
+    """Calculate neural fragility from raw stability radius values along the channel dimension for each time window.
 
-    This matches the notebook convention: `(max - raw) / max`.
+    Args:
+        raw_stability_radius: Raw stability radius array of shape `(n_channels, n_windows)`.
+        eps: Small value to avoid division by zero.
+
+    Returns:
+        Neural fragility array following the convention `(max - raw) / max`.
     """
-    raw_fragility = np.asarray(raw_fragility)
-    max_vals = np.max(raw_fragility, axis=0)
-    return (max_vals - raw_fragility) / (max_vals + eps)
+    raw_stability_radius = np.asarray(raw_stability_radius)
+    max_vals = np.max(raw_stability_radius, axis=0)
+    return (max_vals - raw_stability_radius) / (max_vals + eps)
 
 
 def save_fragility_npz(
-    path,
-    raw_fragility,
-    normalized_fragility,
-    times=None,
-    channel_names=None,
-):
-    """Save fragility arrays without pickle."""
-    payload = {
-        "raw_fragility": np.asarray(raw_fragility),
-        "normalized_fragility": np.asarray(normalized_fragility),
+    path: PathLikeStr,
+    raw_stability_radius: FloatArray,
+    neural_fragility: FloatArray,
+    times: FloatArray | None = None,
+    channel_names: StringArray | list[str] | None = None,
+) -> None:
+    """Save fragility-related arrays in a compressed NumPy format without pickle.
+
+    Args:
+        path: Path to the target `.npz` file.
+        raw_stability_radius: Raw stability radius array.
+        neural_fragility: Neural fragility array.
+        times: Array of center times for each window.
+        channel_names: List or array of channel names.
+
+    Returns:
+        None.
+    """
+    payload: dict[str, Any] = {
+        "raw_stability_radius": np.asarray(raw_stability_radius),
+        "neural_fragility": np.asarray(neural_fragility),
     }
     if times is not None:
         payload["times"] = np.asarray(times)
     if channel_names is not None:
         payload["channel_names"] = np.asarray(channel_names, dtype=str)
-    np.savez_compressed(path, **payload)
+    np.savez_compressed(path, allow_pickle=False, **payload)
 
 
-def load_fragility_npz(path):
-    """Load fragility arrays saved by `save_fragility_npz`."""
+def load_fragility_npz(path: PathLikeStr) -> dict[str, NDArray[Any]]:
+    """Load fragility arrays saved with `save_fragility_npz`.
+
+    Args:
+        path: Path to the `.npz` file to load.
+
+    Returns:
+        Dictionary containing the loaded arrays indexed by their names.
+    """
     with np.load(path, allow_pickle=False) as data:
         return {key: data[key] for key in data.files}
