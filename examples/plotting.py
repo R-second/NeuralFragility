@@ -1,9 +1,27 @@
 """Plotting helpers shared by paper-oriented examples."""
 
+from __future__ import annotations
+
+from os import PathLike
 from pathlib import Path
+from typing import Any, TypeAlias
+
+PathLikeStr: TypeAlias = str | PathLike[str]
 
 
-def configure_paper_matplotlib(output_file, show=False):
+def configure_matplotlib(
+    output_file: PathLikeStr,
+    show: bool = False,
+) -> tuple[Any, float]:
+    """Configure matplotlib.
+
+    Args:
+        output_file: Path to the output image file. Line transparency will be adjusted based on the file extension.
+        show: Whether to display the plot interactively.
+
+    Returns:
+        `matplotlib.pyplot` instance and the recommended line transparency.
+    """
     import matplotlib
 
     if not show:
