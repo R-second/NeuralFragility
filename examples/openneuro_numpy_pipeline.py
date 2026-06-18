@@ -1,25 +1,47 @@
 """Small NumPy-only example for the OpenNeuro-style analysis pipeline."""
 
+from __future__ import annotations
+
 try:
     from ._bootstrap import output_path
 except ImportError:
     from _bootstrap import output_path
 
 import argparse
+from os import PathLike
 from pathlib import Path
+from typing import TypeAlias
 
 import numpy as np
+from numpy.typing import NDArray
 
 from eeg_fragility import (
-    compute_fragility_from_matrices,
+    compute_stability_radius_from_matrices,
     create_sliding_windows,
     estimate_transition_matrices,
-    normalize_fragility,
+    calculate_neural_fragility,
     save_fragility_npz,
 )
 
+FloatArray: TypeAlias = NDArray[np.floating]
+PathLikeStr: TypeAlias = str | PathLike[str]
 
-def generate_synthetic_eeg(n_channels, n_times, seed=0):
+
+def generate_synthetic_eeg(
+    n_channels: int,
+    n_times: int,
+    seed: int = 0,
+) -> FloatArray:
+    """Generate a synthetic EEG array with linear dynamics and noise.
+
+    Args:
+        n_channels: Number of channels.
+        n_times: Number of samples.
+        seed: Random seed.
+
+    Returns:
+        A synthetic EEG array with shape `(n_channels, n_times)`.
+    """
     rng = np.random.default_rng(seed)
     A = rng.standard_normal((n_channels, n_channels))
     A *= 0.9 / np.max(np.abs(np.linalg.eigvals(A)))
@@ -31,7 +53,21 @@ def generate_synthetic_eeg(n_channels, n_times, seed=0):
     return eeg
 
 
-def plot_heatmap(normalized_fragility, times, output_file):
+def plot_heatmap(
+    neural_fragility: FloatArray,
+    times: FloatArray,
+    output_file: PathLikeStr,
+) -> None:
+    """Save a fragility heatmap image.
+
+    Args:
+        neural_fragility: A fragility array with shape `(n_channels, n_windows)`.
+        times: The center times of each window.
+        output_file: The path to save the heatmap image.
+
+    Returns:
+        None.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -42,14 +78,14 @@ def plot_heatmap(normalized_fragility, times, output_file):
 
     plt.figure(figsize=(10, 6))
     plt.imshow(
-        normalized_fragility,
+        neural_fragility,
         aspect="auto",
         origin="lower",
         cmap="turbo",
         vmin=0.0,
         vmax=1.0,
     )
-    plt.colorbar(label="Neural Fragility (normalized)")
+    plt.colorbar(label="Neural Fragility")
     plt.xlabel("Time (s)")
     plt.ylabel("Channels")
 
@@ -63,7 +99,9 @@ def plot_heatmap(normalized_fragility, times, output_file):
     print(f"Saved heatmap to {output_file}")
 
 
-def main():
+def main() -> None:
+    """Execute the OpenNeuro-style fragility pipeline on synthetic data and save results.
+    """
     parser = argparse.ArgumentParser(
         description="Run a NumPy-only OpenNeuro-style fragility pipeline."
     )
@@ -103,10 +141,10 @@ def main():
         eeg, fs=args.fs, window_size_ms=args.window_ms, step_size_ms=args.step_ms
     )
     transition_matrices = estimate_transition_matrices(windows, l2_lambda=1e-4)
-    raw_fragility = compute_fragility_from_matrices(
+    raw_fragility = compute_stability_radius_from_matrices(
         transition_matrices, method=args.method, gamma=0.01
     )
-    normalized_fragility = normalize_fragility(raw_fragility)
+    normalized_fragility = calculate_neural_fragility(raw_fragility)
 
     save_fragility_npz(
         args.data_output, raw_fragility, normalized_fragility, times=times
