@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from openneuro_fragility import (
+from eeg_fragility import (
     compute_fragility_from_matrices,
     create_sliding_windows,
     estimate_transition_matrices,

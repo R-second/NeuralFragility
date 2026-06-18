@@ -1,9 +1,21 @@
 """NeuralFragility package entrypoint."""
 
 from .eeg_fragility import (
+    compute_fragility_from_matrices,
+    compute_fragility_grid_search,
     compute_fragility_heatmap,
+    create_sliding_windows,
     estimate_linear_dynamics_ols,
+    estimate_noise_covariances,
     estimate_transition_matrix,
+    estimate_transition_matrices,
+    estimate_transition_matrices_from_windows,
+    is_stable_transition_matrix,
+    load_fragility_npz,
+    model_fitting_errors,
+    normalize_fragility,
+    save_fragility_npz,
+    spectral_radii,
 )
 from .fragility_algorithm import (
     compute_level_value,
@@ -14,19 +26,6 @@ from .fragility_algorithm import (
     find_best_interval_midpoint,
     maximize_level_value,
     solve_level_set_eigenproblem,
-)
-from .openneuro_fragility import (
-    compute_fragility_from_matrices,
-    compute_fragility_grid_search,
-    create_sliding_windows,
-    estimate_noise_covariances,
-    estimate_transition_matrices,
-    is_stable_transition_matrix,
-    load_fragility_npz,
-    model_fitting_errors,
-    normalize_fragility,
-    save_fragility_npz,
-    spectral_radii,
 )
 
 __all__ = [
@@ -40,6 +39,7 @@ __all__ = [
     "estimate_linear_dynamics_ols",
     "estimate_noise_covariances",
     "estimate_transition_matrices",
+    "estimate_transition_matrices_from_windows",
     "estimate_transition_matrix",
     "extract_unit_circle_angles",
     "filter_level_crossings",

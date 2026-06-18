@@ -76,10 +76,10 @@ For a quick smoke test:
 python examples/method_comparison.py --sizes 6 8 --trials 1 --grid-resolutions 20 40 --epsilons 1e-1 1e-3 --max-iter 3
 ```
 
-OpenNeuro-style notebook utilities have been moved into `openneuro_fragility.py`.
-They cover sliding windows, ridge model fitting, fragility computation from
-precomputed transition matrices, normalization, and `.npz` persistence. A small
-NumPy-only smoke example is available:
+EEG pipeline utilities live in `eeg_fragility.py`. They cover sliding windows,
+ridge model fitting, fragility computation from precomputed transition matrices,
+normalization, and `.npz` persistence. A small NumPy-only smoke example is
+available:
 
 ```
 python examples/openneuro_numpy_pipeline.py
@@ -111,7 +111,7 @@ API
 ---
 - `NeuralFragility.fragility_algorithm.compute_neural_fragility(transition_matrix, channel_index, gamma=0.01)` - compute fragility for one transition matrix and channel.
 - `NeuralFragility.eeg_fragility.compute_fragility_heatmap(eeg, fs, window_sec, step_sec)` - compute a heatmap from an `eeg` array with shape `(n_channels, n_times)`.
-- `NeuralFragility.openneuro_fragility.compute_fragility_from_matrices(transition_matrices)` - compute fragility from pre-estimated transition matrices with shape `(n_windows, n_channels, n_channels)`.
+- `NeuralFragility.eeg_fragility.compute_fragility_from_matrices(transition_matrices)` - compute fragility from pre-estimated transition matrices with shape `(n_windows, n_channels, n_channels)`.
 
 If you want integration with `openNeuroAnalysis.ipynb`, pass preprocessed
 EEG arrays (channels x times) to `compute_fragility_heatmap`.
