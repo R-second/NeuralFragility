@@ -100,8 +100,7 @@ def plot_heatmap(
 
 
 def main() -> None:
-    """Execute the OpenNeuro-style fragility pipeline on synthetic data and save results.
-    """
+    """Execute the OpenNeuro-style fragility pipeline on synthetic data and save results."""
     parser = argparse.ArgumentParser(
         description="Run a NumPy-only OpenNeuro-style fragility pipeline."
     )
