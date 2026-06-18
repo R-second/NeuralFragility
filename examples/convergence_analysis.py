@@ -165,8 +165,7 @@ def plot_convergence(
 
 
 def main() -> None:
-    """Parse CLI arguments and run convergence analysis.
-    """
+    """Parse CLI arguments and run convergence analysis."""
     parser = argparse.ArgumentParser(
         description="Run convergence analysis on random stable matrices."
     )

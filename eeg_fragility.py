@@ -213,6 +213,7 @@ def model_fitting_errors(
 
     return errors
 
+
 def compute_stability_radius_grid_search(
     transition_matrix: FloatArray,
     channel_index: int,
@@ -343,7 +344,9 @@ def compute_stability_radius_heatmap(
     return heatmap, times
 
 
-def calculate_neural_fragility(raw_stability_radius: FloatArray, eps: float = 1e-14) -> FloatArray:
+def calculate_neural_fragility(
+    raw_stability_radius: FloatArray, eps: float = 1e-14
+) -> FloatArray:
     """Calculate neural fragility from raw stability radius values along the channel dimension for each time window.
 
     Args:
@@ -375,7 +378,7 @@ def compute_neural_fragility_heatmap(
         step_sec: Window step size in seconds.
         gamma: Regularization parameter for the level set method.
         verbose: Whether to display progress if possible.
-    
+
     Returns:
         Neural fragility heatmap and the center times of each window.
     """

@@ -382,8 +382,7 @@ def save_figure(
 
 
 def main() -> None:
-    """Parse CLI arguments and execute comparison experiments or plot existing results.
-    """
+    """Parse CLI arguments and execute comparison experiments or plot existing results."""
     parser = argparse.ArgumentParser(
         description="Compare grid search and proposed method runtimes/errors."
     )

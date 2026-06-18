@@ -78,8 +78,7 @@ def save_heatmap(heatmap: FloatArray, output_file: PathLikeStr) -> None:
 
 
 def main() -> None:
-    """Parse CLI arguments and run the synthetic data heatmap example.
-    """
+    """Parse CLI arguments and run the synthetic data heatmap example."""
     parser = argparse.ArgumentParser(
         description="Run a self-contained NeuralFragility example."
     )

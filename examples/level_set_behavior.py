@@ -136,8 +136,7 @@ def run_experiment(
 
 
 def main() -> None:
-    """Parse CLI arguments and run level-set behavior visualization.
-    """
+    """Parse CLI arguments and run level-set behavior visualization."""
     parser = argparse.ArgumentParser(
         description="Run the paper level-set behavior check."
     )
