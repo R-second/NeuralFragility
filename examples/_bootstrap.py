@@ -1,7 +1,9 @@
 """Shared setup for examples run directly from this repository."""
 
-from pathlib import Path
+from __future__ import annotations
+
 import os
+from pathlib import Path
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +17,14 @@ os.environ.setdefault("MPLCONFIGDIR", str(CACHE_DIR / "matplotlib"))
 os.environ.setdefault("XDG_CACHE_HOME", str(CACHE_DIR))
 
 
-def output_path(filename):
+def output_path(filename: str) -> Path:
+    """Return a path for an output file under `outputs/`, creating the directory if needed.
+
+    Args:
+        filename: Filename (with extension) for the output file, e.g. "convergence_plot.png".
+
+    Returns:
+        Path to the output file under `outputs/`.
+    """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     return OUTPUT_DIR / filename

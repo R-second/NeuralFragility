@@ -1,5 +1,7 @@
 """Download MNE's small epilepsy ECoG sample into git-ignored `data/`."""
 
+from __future__ import annotations
+
 try:
     from ._bootstrap import REPO_ROOT
 except ImportError:
@@ -8,7 +10,9 @@ except ImportError:
 import os
 
 
-def main():
+def main() -> None:
+    """Download MNE's small epilepsy ECoG sample into git-ignored `data/`.
+    """
     os.environ.setdefault("MPLCONFIGDIR", str(REPO_ROOT / ".cache" / "matplotlib"))
     os.environ.setdefault("XDG_CACHE_HOME", str(REPO_ROOT / ".cache"))
 
