@@ -7,29 +7,43 @@ Expected local files under `data/` by default:
 - sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_channels.tsv
 """
 
+from __future__ import annotations
+
 try:
     from ._bootstrap import output_path
 except ImportError:
     from _bootstrap import output_path
 
 import argparse
+from os import PathLike
 from pathlib import Path
+from typing import Any, TypeAlias
 
 import numpy as np
+from numpy.typing import NDArray
 
 from eeg_fragility import (
-    compute_fragility_from_matrices,
+    compute_stability_radius_from_matrices,
     create_sliding_windows,
     estimate_transition_matrices,
-    normalize_fragility,
+    calculate_neural_fragility,
     save_fragility_npz,
-    spectral_radii,
 )
 
 DEFAULT_PREFIX = "auto"
+FloatArray: TypeAlias = NDArray[np.floating]
+PathLikeStr: TypeAlias = str | PathLike[str]
 
 
-def require_optional_dependencies():
+def require_optional_dependencies() -> tuple[Any, Any]:
+    """Import optional dependencies for OpenNeuro pipeline, exiting with an error message if not found.
+
+    Args:
+        None.
+
+    Returns:
+        Imported `mne` and `pandas` modules.
+    """
     try:
         import mne
         import pandas as pd
@@ -40,7 +54,15 @@ def require_optional_dependencies():
     return mne, pd
 
 
-def detect_seizure_onset(events_file):
+def detect_seizure_onset(events_file: PathLikeStr) -> float:
+    """Detect seizure onset time from events.tsv.
+
+    Args:
+        events_file: BIDS format events.tsv path.
+
+    Returns:
+        The onset time of the first row containing `onset` in the `trial_type` column.
+    """
     _, pd = require_optional_dependencies()
     events = pd.read_csv(events_file, sep="\t")
     onset_rows = events[
@@ -51,7 +73,15 @@ def detect_seizure_onset(events_file):
     return float(onset_rows.iloc[0]["onset"])
 
 
-def load_bad_channels(channels_file):
+def load_bad_channels(channels_file: PathLikeStr) -> list[str]:
+    """Load bad channel names from channels.tsv.
+
+    Args:
+        channels_file: BIDS format channels.tsv path.
+
+    Returns:
+        List of channel names where `status` is `bad`.
+    """
     _, pd = require_optional_dependencies()
     channels = pd.read_csv(channels_file, sep="\t")
     if "status" not in channels.columns:
@@ -60,7 +90,19 @@ def load_bad_channels(channels_file):
     return bad_rows["name"].tolist()
 
 
-def resolve_openneuro_files(data_dir, subject_prefix):
+def resolve_openneuro_files(
+    data_dir: PathLikeStr,
+    subject_prefix: str,
+) -> tuple[Path, Path, Path, str]:
+    """Resolve BrainVision-related files under the data directory.
+
+    Args:
+        data_dir: Directory containing OpenNeuro/BIDS data.
+        subject_prefix: Target file prefix, or `"auto"` for automatic detection.
+
+    Returns:
+        Path to `.vhdr` file, events.tsv file, channels.tsv file, and resolved subject prefix.
+    """
     data_dir = Path(data_dir)
     if subject_prefix == "auto":
         vhdr_files = sorted(data_dir.rglob("*_ieeg.vhdr"))
@@ -96,7 +138,15 @@ def resolve_openneuro_files(data_dir, subject_prefix):
     return vhdr_file, events_file, channels_file, subject_prefix
 
 
-def load_and_preprocess_raw(args):
+def load_and_preprocess_raw(args: argparse.Namespace) -> tuple[Any, float, float]:
+    """Load BrainVision recordings and preprocess them according to CLI settings.
+
+    Args:
+        args: `argparse` で得た設定値。
+
+    Returns:
+        Preprocessed MNE Raw object, detected seizure onset time, and crop start time.
+    """
     mne, _ = require_optional_dependencies()
 
     vhdr_file, events_file, channels_file, subject_prefix = resolve_openneuro_files(
@@ -112,7 +162,9 @@ def load_and_preprocess_raw(args):
     print(f"Using recording: {subject_prefix}")
     print(f"Header file: {vhdr_file}")
     raw = mne.io.read_raw_brainvision(vhdr_file, preload=False, verbose=False)
-    raw_cropped = raw.crop(tmin=max(0.0, tmin), tmax=min(float(raw.times[-1]), tmax))
+    crop_start_time = max(0.0, tmin)
+    crop_end_time = min(float(raw.times[-1]), tmax)
+    raw_cropped = raw.crop(tmin=crop_start_time, tmax=crop_end_time)
     raw_cropped.load_data()
 
     channels_to_drop = [
@@ -134,12 +186,31 @@ def load_and_preprocess_raw(args):
         raw_cropped.set_eeg_reference(ref_channels="average", projection=False)
 
     print(f"Detected onset: {seizure_onset_time:.3f} s")
+    print(f"Cropped time range: {crop_start_time:.3f} s to {crop_end_time:.3f} s")
     print(f"Loaded data shape: {raw_cropped.get_data().shape} (channels, samples)")
     print(f"Dropped bad channels: {len(channels_to_drop)}")
-    return raw_cropped, seizure_onset_time
+    return raw_cropped, seizure_onset_time, crop_start_time
 
 
-def plot_heatmap(normalized_fragility, times, onset_time, channel_names, output_file):
+def plot_heatmap(
+    neural_fragility: FloatArray,
+    times: FloatArray,
+    onset_time: float,
+    channel_names: list[str],
+    output_file: PathLikeStr,
+) -> None:
+    """Save a neural fragility heatmap with the seizure onset position overlaid.
+
+    Args:
+        neural_fragility: Neural fragility array of shape `(n_channels, n_windows)`.
+        times: Absolute center times of each window.
+        onset_time: Seizure onset time.
+        channel_names: List of channel names.
+        output_file: Path to the output image file.
+
+    Returns:
+        None.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -147,12 +218,17 @@ def plot_heatmap(normalized_fragility, times, onset_time, channel_names, output_
 
     output_file = Path(output_file)
     output_file.parent.mkdir(parents=True, exist_ok=True)
+    times = np.asarray(times)
+    if times.size == 0:
+        raise ValueError("times must contain at least one window center.")
+    if times.size != neural_fragility.shape[1]:
+        raise ValueError("times must have one value per heatmap window.")
 
     plt.figure(figsize=(15, 10))
-    plt.imshow(normalized_fragility, aspect="auto", cmap="turbo", vmin=0.0, vmax=1.0)
-    plt.colorbar(label="Neural Fragility (normalized)")
+    plt.imshow(neural_fragility, aspect="auto", cmap="turbo", vmin=0.0, vmax=1.0)
+    plt.colorbar(label="Neural Fragility")
 
-    n_windows = normalized_fragility.shape[1]
+    n_windows = neural_fragility.shape[1]
     n_ticks = min(20, n_windows)
     tick_indices = np.linspace(0, n_windows - 1, n_ticks, dtype=int)
     tick_labels = [f"{times[i] - onset_time:.1f}" for i in tick_indices]
@@ -161,11 +237,28 @@ def plot_heatmap(normalized_fragility, times, onset_time, channel_names, output_
     if len(channel_names) <= 120:
         plt.yticks(np.arange(len(channel_names)), channel_names, fontsize=7)
 
-    onset_idx = int(np.argmin(np.abs(times - onset_time)))
-    plt.axvline(
-        x=onset_idx, color="white", linestyle="--", linewidth=2, label="Seizure Onset"
-    )
-    plt.legend(loc="upper right")
+    if len(times) > 1:
+        median_step = float(np.median(np.diff(times)))
+        if median_step == 0:
+            raise ValueError("times must contain distinct window centers.")
+        half_step = abs(median_step) / 2
+        display_start = float(times[0]) - half_step
+        display_end = float(times[-1]) + half_step
+        onset_x = (onset_time - float(times[0])) / median_step
+    else:
+        display_start = float(times[0])
+        display_end = float(times[0])
+        onset_x = 0.0
+
+    if display_start <= onset_time <= display_end:
+        plt.axvline(
+            x=onset_x,
+            color="white",
+            linestyle="--",
+            linewidth=2,
+            label="Seizure Onset",
+        )
+        plt.legend(loc="upper right")
     plt.xlabel("Time relative to Seizure Onset (s)")
     plt.ylabel("Channels")
     plt.tight_layout()
@@ -174,7 +267,15 @@ def plot_heatmap(normalized_fragility, times, onset_time, channel_names, output_
     print(f"Saved heatmap to {output_file}")
 
 
-def main():
+def main() -> None:
+    """Parse CLI arguments and run the local OpenNeuro BrainVision pipeline.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+    """
     parser = argparse.ArgumentParser(
         description="Run OpenNeuro BrainVision fragility analysis from local data."
     )
@@ -259,21 +360,20 @@ def main():
     )
     args = parser.parse_args()
 
-    raw, onset_time = load_and_preprocess_raw(args)
+    raw, onset_time, crop_start_time = load_and_preprocess_raw(args)
     windows, window_times = create_sliding_windows(
         raw, window_size_ms=args.window_ms, step_size_ms=args.step_ms
     )
+    absolute_window_times = window_times + crop_start_time
 
     if args.max_windows > 0:
         windows = windows[: args.max_windows]
-        window_times = window_times[: args.max_windows]
+        absolute_window_times = absolute_window_times[: args.max_windows]
 
     print(f"Windows shape: {windows.shape}")
     transition_matrices = estimate_transition_matrices(windows, l2_lambda=args.ridge)
-    radii = spectral_radii(transition_matrices)
-    print(f"Stable transition matrices: {np.sum(radii <= 1.0)} / {len(radii)}")
 
-    raw_fragility = compute_fragility_from_matrices(
+    raw_fragility = compute_stability_radius_from_matrices(
         transition_matrices,
         gamma=args.gamma,
         method=args.method,
@@ -282,18 +382,22 @@ def main():
         epsilon=args.epsilon,
         progress=True,
     )
-    normalized_fragility = normalize_fragility(raw_fragility)
+    normalized_fragility = calculate_neural_fragility(raw_fragility)
 
     save_fragility_npz(
         args.data_output,
         raw_fragility,
         normalized_fragility,
-        times=window_times,
+        times=absolute_window_times,
         channel_names=raw.ch_names,
     )
     print(f"Saved fragility arrays to {args.data_output}")
     plot_heatmap(
-        normalized_fragility, window_times, onset_time, raw.ch_names, args.output
+        normalized_fragility,
+        absolute_window_times,
+        onset_time,
+        raw.ch_names,
+        args.output,
     )
 
 
