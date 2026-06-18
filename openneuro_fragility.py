@@ -5,12 +5,13 @@ MNE Raw object to `create_sliding_windows` when MNE is installed, or pass a
 plain NumPy array with shape `(n_channels, n_times)` and an explicit sampling
 frequency.
 """
+
 import numpy as np
 
 try:
-    from .sreedhar_alg import calculate_inf_sigma2_single, neural_fragility_inf
+    from .fragility_algorithm import compute_level_value, compute_neural_fragility
 except ImportError:
-    from sreedhar_alg import calculate_inf_sigma2_single, neural_fragility_inf
+    from fragility_algorithm import compute_level_value, compute_neural_fragility
 
 
 def _get_data_and_times(raw_or_data, fs=None):
@@ -51,13 +52,13 @@ def create_sliding_windows(raw_or_data, fs=None, window_size_ms=250, step_size_m
     windows = np.empty((len(starts), n_channels, n_samples_window), dtype=data.dtype)
 
     for i, start_idx in enumerate(starts):
-        windows[i] = data[:, start_idx:start_idx + n_samples_window]
+        windows[i] = data[:, start_idx : start_idx + n_samples_window]
 
     window_times = times[starts] + (n_samples_window / sampling_frequency / 2)
     return windows, window_times
 
 
-def estimate_linear_models(windows, l2_lambda=1e-4):
+def estimate_transition_matrices(windows, l2_lambda=1e-4):
     """Estimate `x(t+1) = A x(t)` for each window using ridge regression."""
     windows = np.asarray(windows)
     if windows.ndim != 3:
@@ -67,7 +68,7 @@ def estimate_linear_models(windows, l2_lambda=1e-4):
     if n_samples < 2:
         raise ValueError("Each window must contain at least two samples.")
 
-    A_matrices = np.zeros((n_windows, n_channels, n_channels), dtype=float)
+    transition_matrices = np.zeros((n_windows, n_channels, n_channels), dtype=float)
     regularization = l2_lambda * np.eye(n_channels)
 
     for i, window in enumerate(windows):
@@ -76,20 +77,25 @@ def estimate_linear_models(windows, l2_lambda=1e-4):
 
         lhs = x_t @ x_t.T + regularization
         rhs = x_t1 @ x_t.T
-        A_matrices[i] = rhs @ np.linalg.pinv(lhs)
+        transition_matrices[i] = rhs @ np.linalg.pinv(lhs)
 
-    return A_matrices
+    return transition_matrices
 
 
-def estimate_noise_covariances(windows, A_matrices):
+def estimate_noise_covariances(windows, transition_matrices):
     """Estimate residual covariance matrices for fitted linear models."""
     windows = np.asarray(windows)
-    A_matrices = np.asarray(A_matrices)
+    transition_matrices = np.asarray(transition_matrices)
 
     if windows.ndim != 3:
         raise ValueError("windows must have shape (n_windows, n_channels, n_samples).")
-    if A_matrices.shape[:2] != windows.shape[:2] or A_matrices.shape[2] != windows.shape[1]:
-        raise ValueError("A_matrices must have shape (n_windows, n_channels, n_channels).")
+    if (
+        transition_matrices.shape[:2] != windows.shape[:2]
+        or transition_matrices.shape[2] != windows.shape[1]
+    ):
+        raise ValueError(
+            "transition_matrices must have shape (n_windows, n_channels, n_channels)."
+        )
 
     n_windows, n_channels, n_samples = windows.shape
     sigma_matrices = np.zeros((n_windows, n_channels, n_channels), dtype=float)
@@ -97,51 +103,60 @@ def estimate_noise_covariances(windows, A_matrices):
     for i, window in enumerate(windows):
         x_t = window[:, :-1]
         x_t1 = window[:, 1:]
-        residuals = x_t1 - A_matrices[i] @ x_t
+        residuals = x_t1 - transition_matrices[i] @ x_t
         sigma_matrices[i] = residuals @ residuals.T / max(n_samples - 1, 1)
 
     return sigma_matrices
 
 
-def model_fitting_errors(windows, A_matrices):
+def model_fitting_errors(windows, transition_matrices):
     """Return relative one-step prediction errors for each window."""
     windows = np.asarray(windows)
-    A_matrices = np.asarray(A_matrices)
+    transition_matrices = np.asarray(transition_matrices)
     errors = np.zeros(windows.shape[0], dtype=float)
 
     for i, window in enumerate(windows):
         x_t = window[:, :-1]
         x_t1 = window[:, 1:]
-        predicted = A_matrices[i] @ x_t
-        errors[i] = np.linalg.norm(x_t1 - predicted, "fro") / (np.linalg.norm(x_t1, "fro") + 1e-12)
+        predicted = transition_matrices[i] @ x_t
+        errors[i] = np.linalg.norm(x_t1 - predicted, "fro") / (
+            np.linalg.norm(x_t1, "fro") + 1e-12
+        )
 
     return errors
 
 
-def spectral_radii(A_matrices):
+def spectral_radii(transition_matrices):
     """Return the maximum absolute eigenvalue for each matrix."""
-    A_matrices = np.asarray(A_matrices)
-    return np.array([np.max(np.abs(np.linalg.eigvals(A))) for A in A_matrices])
+    transition_matrices = np.asarray(transition_matrices)
+    return np.array(
+        [
+            np.max(np.abs(np.linalg.eigvals(transition_matrix)))
+            for transition_matrix in transition_matrices
+        ]
+    )
 
 
-def is_stable(A, tol=0.0):
-    """Return whether all eigenvalues of `A` lie inside the unit circle."""
-    return np.max(np.abs(np.linalg.eigvals(A))) <= 1.0 + tol
+def is_stable_transition_matrix(transition_matrix, tol=0.0):
+    """Return whether all eigenvalues lie inside the unit circle."""
+    return np.max(np.abs(np.linalg.eigvals(transition_matrix))) <= 1.0 + tol
 
 
-def grid_search_fragility(A, k, num_points=1000):
+def compute_fragility_grid_search(transition_matrix, channel_index, num_points=1000):
     """Approximate neural fragility by grid-searching `max_theta inf sigma2`.
 
-    `neural_fragility_inf` returns `1 / max_theta inf sigma2`, so this helper
+    `compute_neural_fragility` returns `1 / max_theta inf sigma2`, so this helper
     returns the same quantity rather than the raw level-set value.
     """
     thetas = np.linspace(0, np.pi, num_points)
-    max_xi = max(calculate_inf_sigma2_single(A, k, theta) for theta in thetas)
-    return 1.0 / max_xi if max_xi != 0 else np.inf
+    peak_level = max(
+        compute_level_value(transition_matrix, channel_index, theta) for theta in thetas
+    )
+    return 1.0 / peak_level if peak_level != 0 else np.inf
 
 
 def compute_fragility_from_matrices(
-    A_matrices,
+    transition_matrices,
     gamma=0.01,
     method="proposed",
     grid_points=1000,
@@ -150,38 +165,48 @@ def compute_fragility_from_matrices(
     progress=False,
 ):
     """Compute raw neural fragility with shape `(n_channels, n_windows)`."""
-    A_matrices = np.asarray(A_matrices)
-    if A_matrices.ndim != 3 or A_matrices.shape[1] != A_matrices.shape[2]:
-        raise ValueError("A_matrices must have shape (n_windows, n_channels, n_channels).")
+    transition_matrices = np.asarray(transition_matrices)
+    if (
+        transition_matrices.ndim != 3
+        or transition_matrices.shape[1] != transition_matrices.shape[2]
+    ):
+        raise ValueError(
+            "transition_matrices must have shape (n_windows, n_channels, n_channels)."
+        )
 
-    n_windows, n_channels, _ = A_matrices.shape
+    n_windows, n_channels, _ = transition_matrices.shape
     raw_fragility = np.zeros((n_channels, n_windows), dtype=float)
 
     iterator = range(n_windows)
     if progress:
         try:
             from tqdm import tqdm
+
             iterator = tqdm(iterator)
         except ImportError:
             pass
 
     for window_idx in iterator:
-        A = A_matrices[window_idx]
-        for k in range(n_channels):
+        transition_matrix = transition_matrices[window_idx]
+        for channel_index in range(n_channels):
             if method == "proposed":
-                val, _, _ = neural_fragility_inf(
-                    A,
-                    k,
+                val, _, _ = compute_neural_fragility(
+                    transition_matrix,
+                    channel_index,
                     gamma=gamma,
                     max_iter=max_iter,
                     print_progress=False,
                     epsilon=epsilon,
                 )
             elif method == "grid":
-                val = grid_search_fragility(A, k, num_points=grid_points)
+                val = compute_fragility_grid_search(
+                    transition_matrix,
+                    channel_index,
+                    num_points=grid_points,
+                )
             else:
                 raise ValueError("method must be 'proposed' or 'grid'.")
-            raw_fragility[k, window_idx] = val
+            raw_fragility[channel_index, window_idx] = val
 
     return raw_fragility
 
@@ -196,7 +221,13 @@ def normalize_fragility(raw_fragility, eps=1e-14):
     return (max_vals - raw_fragility) / (max_vals + eps)
 
 
-def save_fragility_npz(path, raw_fragility, normalized_fragility, times=None, channel_names=None):
+def save_fragility_npz(
+    path,
+    raw_fragility,
+    normalized_fragility,
+    times=None,
+    channel_names=None,
+):
     """Save fragility arrays without pickle."""
     payload = {
         "raw_fragility": np.asarray(raw_fragility),

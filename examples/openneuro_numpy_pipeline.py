@@ -1,4 +1,5 @@
 """Small NumPy-only example for the OpenNeuro-style analysis pipeline."""
+
 try:
     from ._bootstrap import output_path
 except ImportError:
@@ -9,10 +10,10 @@ from pathlib import Path
 
 import numpy as np
 
-from openneuro_utils import (
+from openneuro_fragility import (
     compute_fragility_from_matrices,
     create_sliding_windows,
-    estimate_linear_models,
+    estimate_transition_matrices,
     normalize_fragility,
     save_fragility_npz,
 )
@@ -32,6 +33,7 @@ def generate_synthetic_eeg(n_channels, n_times, seed=0):
 
 def plot_heatmap(normalized_fragility, times, output_file):
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -39,7 +41,14 @@ def plot_heatmap(normalized_fragility, times, output_file):
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
     plt.figure(figsize=(10, 6))
-    plt.imshow(normalized_fragility, aspect="auto", origin="lower", cmap="turbo", vmin=0.0, vmax=1.0)
+    plt.imshow(
+        normalized_fragility,
+        aspect="auto",
+        origin="lower",
+        cmap="turbo",
+        vmin=0.0,
+        vmax=1.0,
+    )
     plt.colorbar(label="Neural Fragility (normalized)")
     plt.xlabel("Time (s)")
     plt.ylabel("Channels")
@@ -55,24 +64,53 @@ def plot_heatmap(normalized_fragility, times, output_file):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run a NumPy-only OpenNeuro-style fragility pipeline.")
-    parser.add_argument("--channels", type=int, default=6, help="Synthetic channel count.")
-    parser.add_argument("--samples", type=int, default=500, help="Synthetic sample count.")
+    parser = argparse.ArgumentParser(
+        description="Run a NumPy-only OpenNeuro-style fragility pipeline."
+    )
+    parser.add_argument(
+        "--channels", type=int, default=6, help="Synthetic channel count."
+    )
+    parser.add_argument(
+        "--samples", type=int, default=500, help="Synthetic sample count."
+    )
     parser.add_argument("--fs", type=float, default=200.0, help="Sampling frequency.")
-    parser.add_argument("--window-ms", type=float, default=250.0, help="Window size in milliseconds.")
-    parser.add_argument("--step-ms", type=float, default=125.0, help="Step size in milliseconds.")
-    parser.add_argument("--method", choices=["proposed", "grid"], default="proposed", help="Fragility solver.")
-    parser.add_argument("--output", default=str(output_path("openneuro_numpy_heatmap.png")), help="Output heatmap path.")
-    parser.add_argument("--data-output", default=str(output_path("openneuro_numpy_fragility.npz")), help="Output data path.")
+    parser.add_argument(
+        "--window-ms", type=float, default=250.0, help="Window size in milliseconds."
+    )
+    parser.add_argument(
+        "--step-ms", type=float, default=125.0, help="Step size in milliseconds."
+    )
+    parser.add_argument(
+        "--method",
+        choices=["proposed", "grid"],
+        default="proposed",
+        help="Fragility solver.",
+    )
+    parser.add_argument(
+        "--output",
+        default=str(output_path("openneuro_numpy_heatmap.png")),
+        help="Output heatmap path.",
+    )
+    parser.add_argument(
+        "--data-output",
+        default=str(output_path("openneuro_numpy_fragility.npz")),
+        help="Output data path.",
+    )
     args = parser.parse_args()
 
     eeg = generate_synthetic_eeg(args.channels, args.samples)
-    windows, times = create_sliding_windows(eeg, fs=args.fs, window_size_ms=args.window_ms, step_size_ms=args.step_ms)
-    A_matrices = estimate_linear_models(windows, l2_lambda=1e-4)
-    raw_fragility = compute_fragility_from_matrices(A_matrices, method=args.method, gamma=0.01)
+    windows, times = create_sliding_windows(
+        eeg, fs=args.fs, window_size_ms=args.window_ms, step_size_ms=args.step_ms
+    )
+    transition_matrices = estimate_transition_matrices(windows, l2_lambda=1e-4)
+    raw_fragility = compute_fragility_from_matrices(
+        transition_matrices, method=args.method, gamma=0.01
+    )
     normalized_fragility = normalize_fragility(raw_fragility)
 
-    save_fragility_npz(args.data_output, raw_fragility, normalized_fragility, times=times)
+    save_fragility_npz(
+        args.data_output, raw_fragility, normalized_fragility, times=times
+    )
     print(f"Saved fragility arrays to {args.data_output}")
     plot_heatmap(normalized_fragility, times, args.output)
 

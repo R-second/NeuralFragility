@@ -1,4 +1,5 @@
 """Convergence analysis for random stable matrices."""
+
 try:
     from ._bootstrap import output_path
     from .plotting import configure_paper_matplotlib
@@ -11,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from sreedhar_alg import optimize_sigma2_inf_main
+from fragility_algorithm import maximize_level_value
 
 
 def generate_stable_matrix(n, spectral_radius=0.95, rng=None):
@@ -28,23 +29,27 @@ def generate_stable_matrix(n, spectral_radius=0.95, rng=None):
     return A * (spectral_radius / max_abs_eig)
 
 
-def extract_xi_history(log):
-    history = [log[0]["xi"]]
+def extract_level_history(log):
+    history = [log[0]["level"]]
     for entry in log[1:]:
-        next_val = entry.get("next_val")
-        if next_val is not None:
-            history.append(next_val)
+        next_level = entry.get("next_level")
+        if next_level is not None:
+            history.append(next_level)
     return np.array(history)
 
 
-def run_trials(num_trials, matrix_size, spectral_radius, k_idx, gamma_algo, max_iter, seed):
+def run_trials(
+    num_trials, matrix_size, spectral_radius, k_idx, gamma_algo, max_iter, seed
+):
     rng = np.random.default_rng(seed)
     results = []
 
     print(f"Running {num_trials} trials with N={matrix_size}...")
     for i in range(num_trials):
-        A = generate_stable_matrix(matrix_size, spectral_radius=spectral_radius, rng=rng)
-        final_xi, final_theta, log = optimize_sigma2_inf_main(
+        A = generate_stable_matrix(
+            matrix_size, spectral_radius=spectral_radius, rng=rng
+        )
+        final_level, final_theta, log = maximize_level_value(
             A,
             k_idx,
             gamma_algo,
@@ -52,8 +57,10 @@ def run_trials(num_trials, matrix_size, spectral_radius, k_idx, gamma_algo, max_
             print_progress=False,
             epsilon=1e-15,
         )
-        results.append(extract_xi_history(log))
-        print(f"Trial {i + 1:>3}/{num_trials}: xi={final_xi:.6f}, theta={final_theta:.4f}, steps={len(log) - 1}")
+        results.append(extract_level_history(log))
+        print(
+            f"Trial {i + 1:>3}/{num_trials}: level={final_level:.6f}, theta={final_theta:.4f}, steps={len(log) - 1}"
+        )
 
     return results
 
@@ -94,20 +101,32 @@ def plot_convergence(results, output_file, show):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run convergence analysis on random stable matrices.")
-    parser.add_argument("--trials", type=int, default=100, help="Number of random trials.")
+    parser = argparse.ArgumentParser(
+        description="Run convergence analysis on random stable matrices."
+    )
+    parser.add_argument(
+        "--trials", type=int, default=100, help="Number of random trials."
+    )
     parser.add_argument("--size", type=int, default=100, help="Matrix size.")
-    parser.add_argument("--spectral-radius", type=float, default=0.95, help="Target spectral radius.")
+    parser.add_argument(
+        "--spectral-radius", type=float, default=0.95, help="Target spectral radius."
+    )
     parser.add_argument("--k", type=int, default=0, help="Perturbed node index.")
     parser.add_argument("--gamma", type=float, default=1e-3, help="Algorithm gamma.")
-    parser.add_argument("--max-iter", type=int, default=20, help="Maximum level-set iterations.")
+    parser.add_argument(
+        "--max-iter", type=int, default=20, help="Maximum level-set iterations."
+    )
     parser.add_argument("--seed", type=int, default=0, help="Random seed.")
     parser.add_argument(
         "--output",
         default=str(output_path("convergence_analysis.png")),
         help="Output figure path.",
     )
-    parser.add_argument("--show", action="store_true", help="Show the figure interactively after saving.")
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="Show the figure interactively after saving.",
+    )
     args = parser.parse_args()
 
     results = run_trials(

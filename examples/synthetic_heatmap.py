@@ -1,4 +1,5 @@
 """Generate synthetic EEG-like data and save a fragility heatmap."""
+
 from pathlib import Path
 
 try:
@@ -9,7 +10,7 @@ except ImportError:
 import argparse
 import numpy as np
 
-from fragility_from_eeg import compute_fragility_heatmap
+from eeg_fragility import compute_fragility_heatmap
 
 
 def generate_synthetic_data(A, T=500, noise_scale=0.1):
@@ -23,6 +24,7 @@ def generate_synthetic_data(A, T=500, noise_scale=0.1):
 
 def save_heatmap(heatmap, output_file):
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -40,7 +42,9 @@ def save_heatmap(heatmap, output_file):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run a self-contained NeuralFragility example.")
+    parser = argparse.ArgumentParser(
+        description="Run a self-contained NeuralFragility example."
+    )
     parser.add_argument(
         "--output",
         default=str(output_path("synthetic_fragility_heatmap.png")),
@@ -59,7 +63,9 @@ def main():
     A_true = 0.9 * A_true / np.max(np.abs(np.linalg.eigvals(A_true)))
     eeg = generate_synthetic_data(A_true, T=1000, noise_scale=0.05)
     fs = 200.0
-    heatmap, times = compute_fragility_heatmap(eeg, fs, window_sec=0.2, step_sec=0.1, gamma=0.01)
+    heatmap, times = compute_fragility_heatmap(
+        eeg, fs, window_sec=0.2, step_sec=0.1, gamma=0.01
+    )
 
     if not args.no_plot:
         output_file = Path(args.output)

@@ -1,4 +1,5 @@
 """Compare grid search and the proposed level-set method."""
+
 try:
     from ._bootstrap import output_path
     from .convergence_analysis import generate_stable_matrix
@@ -14,8 +15,7 @@ import time
 
 import numpy as np
 
-from sreedhar_alg import calculate_inf_sigma2_single, optimize_sigma2_inf_main
-
+from fragility_algorithm import compute_level_value, maximize_level_value
 
 DEFAULT_GRID_RESOLUTIONS = [100, 300, 1000, 3000, 6000]
 DEFAULT_EPSILON_VALUES = [1e-1, 1e-3, 1e-6]
@@ -27,7 +27,7 @@ def run_grid_search(A, k, num_points):
 
     start_time = time.perf_counter()
     for theta in thetas:
-        val = calculate_inf_sigma2_single(A, k, theta)
+        val = compute_level_value(A, k, theta)
         if val > max_val:
             max_val = val
     elapsed = time.perf_counter() - start_time
@@ -37,7 +37,7 @@ def run_grid_search(A, k, num_points):
 
 def run_proposed_method(A, k, epsilon, gamma=0.01, max_iter=20):
     start_time = time.perf_counter()
-    val, _, _ = optimize_sigma2_inf_main(
+    val, _, _ = maximize_level_value(
         A,
         k,
         gamma,
@@ -69,8 +69,12 @@ def run_comparison_experiment(
 
     print(f"Comparing methods for N={matrix_size} with {num_trials} trials...")
     for trial_idx in range(num_trials):
-        A = generate_stable_matrix(matrix_size, spectral_radius=spectral_radius, rng=rng)
-        true_val, _ = run_proposed_method(A, k_idx, epsilon=1e-12, gamma=gamma_algo, max_iter=max_iter)
+        A = generate_stable_matrix(
+            matrix_size, spectral_radius=spectral_radius, rng=rng
+        )
+        true_val, _ = run_proposed_method(
+            A, k_idx, epsilon=1e-12, gamma=gamma_algo, max_iter=max_iter
+        )
 
         for idx, resolution in enumerate(grid_resolutions):
             val, elapsed = run_grid_search(A, k_idx, resolution)
@@ -78,11 +82,13 @@ def run_comparison_experiment(
             avg_grid_errors[idx] += abs(val - true_val)
 
         for idx, epsilon in enumerate(epsilon_values):
-            val, elapsed = run_proposed_method(A, k_idx, epsilon=epsilon, gamma=gamma_algo, max_iter=max_iter)
+            val, elapsed = run_proposed_method(
+                A, k_idx, epsilon=epsilon, gamma=gamma_algo, max_iter=max_iter
+            )
             avg_prop_times[idx] += elapsed
             avg_prop_errors[idx] += abs(val - true_val)
 
-        print(f"Trial {trial_idx + 1:>3}/{num_trials}: reference xi={true_val:.6f}")
+        print(f"Trial {trial_idx + 1:>3}/{num_trials}: reference level={true_val:.6f}")
 
     avg_grid_times /= num_trials
     avg_grid_errors /= num_trials
@@ -122,7 +128,14 @@ def plot_single_comparison(results, output_file, show):
     prop_times = np.maximum(results["avg_prop_times"], 1e-16)
     prop_errors = np.maximum(results["avg_prop_errors"], 1e-16)
 
-    plt.loglog(grid_times, grid_errors, "o-", label="Ad-hoc (Grid Search)", color="blue", markersize=6)
+    plt.loglog(
+        grid_times,
+        grid_errors,
+        "o-",
+        label="Ad-hoc (Grid Search)",
+        color="blue",
+        markersize=6,
+    )
     for i, resolution in enumerate(results["grid_resolutions"]):
         plt.annotate(
             f"M={int(resolution)}",
@@ -134,7 +147,14 @@ def plot_single_comparison(results, output_file, show):
             color="blue",
         )
 
-    plt.loglog(prop_times, prop_errors, "*-", label="Proposed Method", color="red", markersize=10)
+    plt.loglog(
+        prop_times,
+        prop_errors,
+        "*-",
+        label="Proposed Method",
+        color="red",
+        markersize=10,
+    )
     for i, epsilon in enumerate(results["epsilon_values"]):
         plt.annotate(
             f"eps={epsilon:.0e}",
@@ -217,7 +237,9 @@ def plot_combined_comparison(results_by_size, output_file, show):
     plt.ylabel("Error")
     plt.grid(True, which="both", ls="--", alpha=0.6)
     plt.ylim(1e-10, 1)
-    plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=2, borderaxespad=0.0)
+    plt.legend(
+        loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=2, borderaxespad=0.0
+    )
     plt.subplots_adjust(bottom=0.25)
     save_figure(plt, output_file, show, tight_layout=False)
 
@@ -235,10 +257,17 @@ def save_figure(plt, output_file, show, tight_layout=True):
     else:
         plt.close()
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Compare grid search and proposed method runtimes/errors.")
-    parser.add_argument("--sizes", type=int, nargs="+", default=[100], help="Matrix sizes to run.")
-    parser.add_argument("--trials", type=int, default=10, help="Number of trials per matrix size.")
+    parser = argparse.ArgumentParser(
+        description="Compare grid search and proposed method runtimes/errors."
+    )
+    parser.add_argument(
+        "--sizes", type=int, nargs="+", default=[100], help="Matrix sizes to run."
+    )
+    parser.add_argument(
+        "--trials", type=int, default=10, help="Number of trials per matrix size."
+    )
     parser.add_argument(
         "--grid-resolutions",
         nargs="+",
@@ -255,13 +284,29 @@ def main():
     )
     parser.add_argument("--k", type=int, default=0, help="Perturbed node index.")
     parser.add_argument("--gamma", type=float, default=1e-3, help="Algorithm gamma.")
-    parser.add_argument("--max-iter", type=int, default=20, help="Maximum level-set iterations.")
-    parser.add_argument("--spectral-radius", type=float, default=0.95, help="Target spectral radius.")
+    parser.add_argument(
+        "--max-iter", type=int, default=20, help="Maximum level-set iterations."
+    )
+    parser.add_argument(
+        "--spectral-radius", type=float, default=0.95, help="Target spectral radius."
+    )
     parser.add_argument("--seed", type=int, default=0, help="Random seed.")
-    parser.add_argument("--results-dir", default=str(output_path("comparison_results")), help="Directory for .npz results.")
-    parser.add_argument("--plot-dir", default=str(output_path("")), help="Directory for plot images.")
-    parser.add_argument("--skip-run", action="store_true", help="Load existing .npz results and only plot.")
-    parser.add_argument("--show", action="store_true", help="Show figures interactively after saving.")
+    parser.add_argument(
+        "--results-dir",
+        default=str(output_path("comparison_results")),
+        help="Directory for .npz results.",
+    )
+    parser.add_argument(
+        "--plot-dir", default=str(output_path("")), help="Directory for plot images."
+    )
+    parser.add_argument(
+        "--skip-run",
+        action="store_true",
+        help="Load existing .npz results and only plot.",
+    )
+    parser.add_argument(
+        "--show", action="store_true", help="Show figures interactively after saving."
+    )
     args = parser.parse_args()
 
     results_dir = Path(args.results_dir)
@@ -292,7 +337,9 @@ def main():
         plot_single_comparison(results, single_plot, args.show)
 
     if len(all_results) > 1:
-        plot_combined_comparison(all_results, plot_dir / "comparison_all_N.png", args.show)
+        plot_combined_comparison(
+            all_results, plot_dir / "comparison_all_N.png", args.show
+        )
 
     print("Comparison complete.")
 

@@ -1,14 +1,11 @@
 NeuralFragility
 ===============
 
-This small package exposes the `sreedhar_alg` implementation and
-provides utilities to compute Neural Fragility heatmaps from EEG-like
-time series.
+This repository implements the neural fragility algorithm.
 
-Quick start
------------
+## Quick start
 
-From this repository directory, install dependencies (recommended in a virtualenv):
+From this repository directory, install dependencies:
 
 ```
 pip install -r requirements.txt
@@ -79,9 +76,9 @@ For a quick smoke test:
 python examples/method_comparison.py --sizes 6 8 --trials 1 --grid-resolutions 20 40 --epsilons 1e-1 1e-3 --max-iter 3
 ```
 
-OpenNeuro-style notebook utilities have been moved into `openneuro_utils.py`.
+OpenNeuro-style notebook utilities have been moved into `openneuro_fragility.py`.
 They cover sliding windows, ridge model fitting, fragility computation from
-precomputed A matrices, normalization, and `.npz` persistence. A small
+precomputed transition matrices, normalization, and `.npz` persistence. A small
 NumPy-only smoke example is available:
 
 ```
@@ -112,9 +109,9 @@ pip install -e .
 
 API
 ---
-- `NeuralFragility.sreedhar_alg.neural_fragility_inf(A, k, gamma=0.01)` - compute fragility for matrix `A` and channel `k`.
-- `NeuralFragility.fragility_from_eeg.compute_fragility_heatmap(eeg, fs, window_sec, step_sec)` - compute heatmap from `eeg` array (n_channels, n_times).
-- `NeuralFragility.openneuro_utils.compute_fragility_from_matrices(A_matrices)` - compute fragility from pre-estimated A matrices `(n_windows, n_channels, n_channels)`.
+- `NeuralFragility.fragility_algorithm.compute_neural_fragility(transition_matrix, channel_index, gamma=0.01)` - compute fragility for one transition matrix and channel.
+- `NeuralFragility.eeg_fragility.compute_fragility_heatmap(eeg, fs, window_sec, step_sec)` - compute a heatmap from an `eeg` array with shape `(n_channels, n_times)`.
+- `NeuralFragility.openneuro_fragility.compute_fragility_from_matrices(transition_matrices)` - compute fragility from pre-estimated transition matrices with shape `(n_windows, n_channels, n_channels)`.
 
 If you want integration with `openNeuroAnalysis.ipynb`, pass preprocessed
 EEG arrays (channels x times) to `compute_fragility_heatmap`.

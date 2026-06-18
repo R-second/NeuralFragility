@@ -1,4 +1,5 @@
 """Plotting helpers shared by paper-oriented examples."""
+
 from pathlib import Path
 
 
@@ -13,7 +14,9 @@ def configure_paper_matplotlib(output_file, show=False):
 
     preferred_font = "Times New Roman"
     available_fonts = {font.name for font in font_manager.fontManager.ttflist}
-    font_family = preferred_font if preferred_font in available_fonts else "DejaVu Serif"
+    font_family = (
+        preferred_font if preferred_font in available_fonts else "DejaVu Serif"
+    )
 
     plt.rcParams["font.family"] = font_family
     plt.rcParams["font.size"] = 20

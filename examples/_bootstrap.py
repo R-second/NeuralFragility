@@ -1,4 +1,5 @@
 """Shared setup for examples run directly from this repository."""
+
 from pathlib import Path
 import os
 import sys

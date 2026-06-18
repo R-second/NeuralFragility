@@ -1,0 +1,283 @@
+"""Core Neural Fragility algorithm."""
+
+import numpy as np
+from scipy import linalg
+from scipy.linalg import eig
+
+
+def compute_level_value(transition_matrix, channel_index, theta):
+    """Evaluate the unregularized level-set objective at one angle."""
+    n_channels = transition_matrix.shape[0]
+    point_on_unit_circle = np.exp(1j * theta)
+    identity = np.eye(n_channels)
+
+    try:
+        selector = np.zeros(n_channels)
+        selector[channel_index] = 1.0
+        transfer_vector = linalg.solve(
+            (point_on_unit_circle * identity - transition_matrix).T,
+            selector,
+        )
+    except np.linalg.LinAlgError:
+        return 0.0
+
+    real_part = np.real(transfer_vector)
+    imag_part = np.imag(transfer_vector)
+    real_norm_sq = np.sum(real_part**2)
+    imag_norm_sq = np.sum(imag_part**2)
+
+    if imag_norm_sq < 1e-12:
+        return np.sqrt(real_norm_sq)
+
+    real_imag_dot = np.dot(real_part, imag_part)
+    value_sq = real_norm_sq - (real_imag_dot**2 / imag_norm_sq)
+    return np.sqrt(np.maximum(value_sq, 0.0))
+
+
+def compute_regularized_level_value(transition_matrix, channel_index, theta, gamma):
+    """Evaluate the gamma-regularized level-set objective at one angle."""
+    n_channels = transition_matrix.shape[0]
+    point_on_unit_circle = np.exp(1j * theta)
+    identity = np.eye(n_channels)
+
+    try:
+        selector = np.zeros(n_channels)
+        selector[channel_index] = 1.0
+        transfer_vector = linalg.solve(
+            (point_on_unit_circle * identity - transition_matrix).T,
+            selector,
+        )
+    except np.linalg.LinAlgError:
+        return 0.0
+
+    real_part = np.real(transfer_vector)
+    imag_part = np.imag(transfer_vector)
+    real_norm_sq = np.sum(real_part**2)
+    imag_norm_sq = np.sum(imag_part**2)
+    real_imag_dot_sq = np.dot(real_part, imag_part) ** 2
+
+    base_term = real_norm_sq
+    regularized_imag_term = 0.5 * (gamma**2 + 1 / gamma**2) * imag_norm_sq
+    sqrt_inner = (gamma + 1 / gamma) ** 2 * (imag_norm_sq**2) + 4 * real_imag_dot_sq
+    correction_term = 0.5 * np.abs(gamma - 1 / gamma) * np.sqrt(sqrt_inner)
+    value_sq = base_term + regularized_imag_term - correction_term
+    return np.sqrt(np.maximum(value_sq, 0.0))
+
+
+def solve_level_set_eigenproblem(transition_matrix, channel_index, level_value, gamma):
+    """Solve the generalized eigenproblem for one level-set iteration."""
+    n_channels = transition_matrix.shape[0]
+    alpha = (1 + gamma**2) / (2 * gamma)
+    beta = (1 - gamma**2) / (2 * gamma)
+    inverse_level = 1.0 / level_value
+
+    identity = np.eye(n_channels)
+    zeros = np.zeros((n_channels, n_channels))
+    phi = inverse_level * identity
+    psi = np.zeros((n_channels, n_channels))
+    psi[channel_index, channel_index] = inverse_level
+
+    left_matrix = np.block(
+        [
+            [-transition_matrix, zeros, zeros, beta * phi],
+            [alpha * psi, identity, zeros, zeros],
+            [zeros, zeros, identity, alpha * phi],
+            [-beta * psi, zeros, zeros, -transition_matrix.T],
+        ]
+    )
+    right_matrix = np.block(
+        [
+            [-identity, -alpha * phi, zeros, zeros],
+            [zeros, transition_matrix.T, beta * psi, zeros],
+            [zeros, -beta * phi, transition_matrix, zeros],
+            [zeros, zeros, -alpha * psi, -identity],
+        ]
+    )
+    return eig(left_matrix, right_matrix, right=False)
+
+
+def extract_unit_circle_angles(eigenvalues, tolerance=1e-4):
+    """Return unique angles for eigenvalues close to the unit circle."""
+    angles = []
+    for eigenvalue in eigenvalues:
+        if np.abs(np.abs(eigenvalue) - 1.0) < tolerance:
+            angles.append(np.abs(np.angle(eigenvalue)))
+
+    if not angles:
+        return np.array([])
+
+    rounded_angles = np.round(np.array(angles), 5)
+    return np.sort(np.unique(rounded_angles))
+
+
+def filter_level_crossings(
+    transition_matrix,
+    channel_index,
+    gamma,
+    level_value,
+    candidate_angles,
+    tolerance=1e-4,
+):
+    """Keep candidate angles whose regularized value matches the current level."""
+    verified_angles = []
+    for theta in candidate_angles:
+        candidate_value = compute_regularized_level_value(
+            transition_matrix,
+            channel_index,
+            theta,
+            gamma,
+        )
+        if np.abs(candidate_value - level_value) < tolerance:
+            verified_angles.append(theta)
+    return np.array(verified_angles)
+
+
+def find_best_interval_midpoint(
+    transition_matrix,
+    channel_index,
+    crossing_angles,
+    current_level,
+):
+    """Search interval midpoints between crossings for a better objective value."""
+    boundaries = np.concatenate(([0.0], crossing_angles, [np.pi]))
+    boundaries = np.unique(boundaries)
+    boundaries.sort()
+
+    best_theta = None
+    best_level = current_level
+    for start_theta, end_theta in zip(boundaries[:-1], boundaries[1:]):
+        if (end_theta - start_theta) < 1e-6:
+            continue
+
+        midpoint_theta = (start_theta + end_theta) / 2.0
+        candidate_level = compute_level_value(
+            transition_matrix,
+            channel_index,
+            midpoint_theta,
+        )
+        if candidate_level > best_level:
+            best_level = candidate_level
+            best_theta = midpoint_theta
+
+    return best_theta, best_level
+
+
+def maximize_level_value(
+    transition_matrix,
+    channel_index,
+    gamma,
+    max_iter=20,
+    print_progress=True,
+    epsilon=1e-6,
+):
+    """Maximize the level-set objective over theta in [0, pi]."""
+    value_at_zero = compute_level_value(transition_matrix, channel_index, 0.0)
+    value_at_pi = compute_level_value(transition_matrix, channel_index, np.pi)
+
+    if value_at_zero >= value_at_pi:
+        current_level = value_at_zero
+        best_theta = 0.0
+    else:
+        current_level = value_at_pi
+        best_theta = np.pi
+
+    iteration_log = [
+        {"iter": 0, "level": current_level, "crossings": [], "next_theta": best_theta}
+    ]
+    if print_progress:
+        print(
+            f"Iter 0: Initial level = {current_level:.6f} at theta = {best_theta:.4f}"
+        )
+
+    for iteration in range(1, max_iter + 1):
+        eigenvalues = solve_level_set_eigenproblem(
+            transition_matrix,
+            channel_index,
+            current_level,
+            gamma,
+        )
+        if print_progress:
+            print(
+                f"Iter {iteration}: Solved GEP for level = {current_level:.6f}, "
+                f"found {len(eigenvalues)} eigenvalues."
+            )
+
+        candidate_angles = extract_unit_circle_angles(eigenvalues)
+        if print_progress:
+            print(
+                f"Iter {iteration}: Extracted {len(candidate_angles)} candidate "
+                f"angles on unit circle. Candidates: {candidate_angles}"
+            )
+
+        crossing_angles = filter_level_crossings(
+            transition_matrix,
+            channel_index,
+            gamma,
+            current_level,
+            candidate_angles,
+            tolerance=1e-2,
+        )
+        if print_progress:
+            print(
+                f"Iter {iteration}: Verified {len(crossing_angles)} angles close "
+                f"to current level. Candidates: {crossing_angles}"
+            )
+
+        next_theta, next_level = find_best_interval_midpoint(
+            transition_matrix,
+            channel_index,
+            crossing_angles,
+            current_level,
+        )
+        iteration_log.append(
+            {
+                "iter": iteration,
+                "level": current_level,
+                "crossings": crossing_angles,
+                "next_theta": next_theta if next_theta is not None else best_theta,
+                "next_level": next_level,
+            }
+        )
+
+        if next_theta is None or (next_level - current_level) < epsilon:
+            if print_progress:
+                print(f"Converged at Iter {iteration}")
+                if next_theta is None:
+                    print("No new theta found that exceeds current level.")
+                else:
+                    improvement = next_level - current_level
+                    print(
+                        f"Improvement {improvement:.6f} is less than epsilon {epsilon:.6f}."
+                    )
+            break
+
+        if print_progress:
+            print(
+                f"Iter {iteration}: level updated {current_level:.6f} -> "
+                f"{next_level:.6f} at theta = {next_theta:.4f}"
+            )
+        current_level = next_level
+        best_theta = next_theta
+
+    return current_level, best_theta, iteration_log
+
+
+def compute_neural_fragility(
+    transition_matrix,
+    channel_index,
+    gamma=0.01,
+    max_iter=20,
+    print_progress=True,
+    epsilon=1e-6,
+):
+    """Compute neural fragility for one channel of one transition matrix."""
+    peak_level, peak_theta, iteration_log = maximize_level_value(
+        transition_matrix,
+        channel_index,
+        gamma,
+        max_iter,
+        print_progress=print_progress,
+        epsilon=epsilon,
+    )
+    fragility = 1.0 / peak_level if peak_level != 0 else np.inf
+    return fragility, peak_theta, iteration_log

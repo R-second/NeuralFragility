@@ -1,4 +1,5 @@
 """Download MNE's small epilepsy ECoG sample into git-ignored `data/`."""
+
 try:
     from ._bootstrap import REPO_ROOT
 except ImportError:
@@ -21,7 +22,9 @@ def main():
     )
     print(f"Downloaded/found MNE epilepsy ECoG data at: {data_path}")
     print("Next try:")
-    print("python examples/openneuro_real_data_pipeline.py --data-dir data --max-windows 2")
+    print(
+        "python examples/openneuro_real_data_pipeline.py --data-dir data --max-windows 2"
+    )
 
 
 if __name__ == "__main__":
