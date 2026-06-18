@@ -358,6 +358,34 @@ def calculate_neural_fragility(raw_stability_radius: FloatArray, eps: float = 1e
     return (max_vals - raw_stability_radius) / (max_vals + eps)
 
 
+def compute_neural_fragility_heatmap(
+    eeg: FloatArray,
+    fs: float,
+    window_sec: float = 0.2,
+    step_sec: float = 0.1,
+    gamma: float = 0.01,
+    verbose: bool = False,
+) -> tuple[FloatArray, FloatArray]:
+    """Compute neural fragility heatmap from EEG array.
+
+    Args:
+        eeg: EEG array of shape `(n_channels, n_times)`.
+        fs: Sampling frequency.
+        window_sec: Window length in seconds.
+        step_sec: Window step size in seconds.
+        gamma: Regularization parameter for the level set method.
+        verbose: Whether to display progress if possible.
+    
+    Returns:
+        Neural fragility heatmap and the center times of each window.
+    """
+    heatmap, times = compute_stability_radius_heatmap(
+        eeg, fs, window_sec, step_sec, gamma, verbose
+    )
+    neural_fragility = calculate_neural_fragility(heatmap)
+    return neural_fragility, times
+
+
 def save_fragility_npz(
     path: PathLikeStr,
     raw_stability_radius: FloatArray,

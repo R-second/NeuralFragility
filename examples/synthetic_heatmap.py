@@ -1,6 +1,10 @@
 """Generate synthetic EEG-like data and save a fragility heatmap."""
 
+from __future__ import annotations
+
+from os import PathLike
 from pathlib import Path
+from typing import TypeAlias
 
 try:
     from ._bootstrap import output_path
@@ -9,25 +13,57 @@ except ImportError:
 
 import argparse
 import numpy as np
+from numpy.typing import NDArray
 
-from eeg_fragility import compute_fragility_heatmap
+from eeg_fragility import compute_neural_fragility_heatmap
 
-
-def generate_synthetic_data(A, T=500, noise_scale=0.1):
-    N = A.shape[0]
-    X = np.zeros((T, N))
-    X[0, :] = np.random.normal(0, 1, N)
-    for t in range(1, T):
-        X[t, :] = A @ X[t - 1, :] + np.random.normal(0, noise_scale, N)
-    return X.T
+FloatArray: TypeAlias = NDArray[np.floating]
+PathLikeStr: TypeAlias = str | PathLike[str]
 
 
-def save_heatmap(heatmap, output_file):
+def generate_synthetic_data(
+    transition_matrix: FloatArray,
+    n_times: int = 500,
+    noise_scale: float = 0.1,
+) -> FloatArray:
+    """Generate synthetic EEG-like data using a linear dynamical system.
+
+    Args:
+        transition_matrix: Transition matrix of the linear dynamical system (shape: `(n_channels, n_channels)`).
+        n_times: Number of samples to generate.
+        noise_scale: Standard deviation of the Gaussian noise added at each time step.
+
+    Returns:
+        Synthetic data with shape `(n_channels, n_times)`.
+    """
+    n_channels = transition_matrix.shape[0]
+    samples = np.zeros((n_times, n_channels))
+    samples[0, :] = np.random.normal(0, 1, n_channels)
+    for t in range(1, n_times):
+        samples[t, :] = transition_matrix @ samples[t - 1, :] + np.random.normal(
+            0,
+            noise_scale,
+            n_channels,
+        )
+    return samples.T
+
+
+def save_heatmap(heatmap: FloatArray, output_file: PathLikeStr) -> None:
+    """Generate a heatmap image of the neural fragility for synthetic data.
+
+    Args:
+        heatmap: Neural fragility heatmap with shape `(n_channels, n_windows)`.
+        output_file: Path to the output image file.
+
+    Returns:
+        None.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    output_file = Path(output_file)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
     plt.figure(figsize=(8, 4))
@@ -41,7 +77,9 @@ def save_heatmap(heatmap, output_file):
     plt.close()
 
 
-def main():
+def main() -> None:
+    """Parse CLI arguments and run the synthetic data heatmap example.
+    """
     parser = argparse.ArgumentParser(
         description="Run a self-contained NeuralFragility example."
     )
@@ -61,9 +99,9 @@ def main():
     N = 8
     A_true = np.random.randn(N, N) * 0.2
     A_true = 0.9 * A_true / np.max(np.abs(np.linalg.eigvals(A_true)))
-    eeg = generate_synthetic_data(A_true, T=1000, noise_scale=0.05)
+    eeg = generate_synthetic_data(A_true, n_times=1000, noise_scale=0.05)
     fs = 200.0
-    heatmap, times = compute_fragility_heatmap(
+    heatmap, times = compute_neural_fragility_heatmap(
         eeg, fs, window_sec=0.2, step_sec=0.1, gamma=0.01
     )
 
