@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TypeAlias
+from typing import TypeAlias, Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -11,7 +11,7 @@ from scipy.linalg import eig
 
 FloatArray: TypeAlias = NDArray[np.floating]
 ComplexArray: TypeAlias = NDArray[np.complexfloating]
-IterationLog: TypeAlias = list[dict[str, object]]
+IterationLog: TypeAlias = list[dict[str, Any]]
 
 
 def compute_level_value(

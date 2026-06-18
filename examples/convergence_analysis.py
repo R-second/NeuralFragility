@@ -1,22 +1,44 @@
 """Convergence analysis for random stable matrices."""
 
+from __future__ import annotations
+
 try:
     from ._bootstrap import output_path
-    from .plotting import configure_paper_matplotlib
+    from .plotting import configure_matplotlib
 except ImportError:
     from _bootstrap import output_path
-    from plotting import configure_paper_matplotlib
+    from plotting import configure_matplotlib
 
 import argparse
+from os import PathLike
 from pathlib import Path
+from typing import TypeAlias, Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from fragility_algorithm import maximize_level_value
 
+FloatArray: TypeAlias = NDArray[np.floating]
+IterationLog: TypeAlias = list[dict[str, Any]]
+PathLikeStr: TypeAlias = str | PathLike[str]
 
-def generate_stable_matrix(n, spectral_radius=0.95, rng=None):
-    """Generate a random stable matrix with the requested spectral radius."""
+
+def generate_stable_matrix(
+    n: int,
+    spectral_radius: float = 0.95,
+    rng: np.random.Generator | None = None,
+) -> FloatArray:
+    """Generate a random stable matrix with a specified spectral radius.
+
+    Args:
+        n: Matrix size.
+        spectral_radius: Spectral radius to match after generation.
+        rng: Random number generator. A new one will be created if `None`.
+
+    Returns:
+        A random stable matrix with shape `(n, n)`.
+    """
     if rng is None:
         rng = np.random.default_rng()
 
@@ -29,18 +51,46 @@ def generate_stable_matrix(n, spectral_radius=0.95, rng=None):
     return A * (spectral_radius / max_abs_eig)
 
 
-def extract_level_history(log):
-    history = [log[0]["level"]]
+def extract_level_history(log: IterationLog) -> FloatArray:
+    """Extract the history of level values from the iteration log.
+
+    Args:
+        log: log returned by `maximize_level_value`, containing entries for each iteration.
+
+    Returns:
+        Array of level values for each iteration.
+    """
+    history = [float(log[0]["level"])]
     for entry in log[1:]:
         next_level = entry.get("next_level")
         if next_level is not None:
-            history.append(next_level)
+            history.append(float(next_level))
     return np.array(history)
 
 
 def run_trials(
-    num_trials, matrix_size, spectral_radius, k_idx, gamma_algo, max_iter, seed
-):
+    num_trials: int,
+    matrix_size: int,
+    spectral_radius: float,
+    k_idx: int,
+    gamma_algo: float,
+    max_iter: int,
+    seed: int,
+) -> list[FloatArray]:
+    """Run multiple random trials for convergence analysis.
+
+    Args:
+        num_trials: Number of trials.
+        matrix_size: Matrix size.
+        spectral_radius: Spectral radius of the generated matrix.
+        k_idx: Index of the channel to evaluate.
+        gamma_algo: Regularization parameter for the level-set method.
+        max_iter: Maximum number of iterations.
+        seed: Random seed.
+
+    Returns:
+        List of level value histories for each trial.
+    """
     rng = np.random.default_rng(seed)
     results = []
 
@@ -65,8 +115,22 @@ def run_trials(
     return results
 
 
-def plot_convergence(results, output_file, show):
-    plt, line_alpha = configure_paper_matplotlib(output_file, show)
+def plot_convergence(
+    results: list[FloatArray],
+    output_file: PathLikeStr,
+    show: bool,
+) -> None:
+    """Plot the convergence error curve and save it.
+
+    Args:
+        results: List of level value histories for each trial.
+        output_file: Path to the output image file.
+        show: Whether to display the figure interactively after saving.
+
+    Returns:
+        None.
+    """
+    plt, line_alpha = configure_matplotlib(output_file, show)
     plt.figure(figsize=(10, 6))
 
     max_error_index = 0
@@ -100,7 +164,9 @@ def plot_convergence(results, output_file, show):
         plt.close()
 
 
-def main():
+def main() -> None:
+    """Parse CLI arguments and run convergence analysis.
+    """
     parser = argparse.ArgumentParser(
         description="Run convergence analysis on random stable matrices."
     )
