@@ -2,7 +2,6 @@
 
 from .eeg_fragility import (
     compute_stability_radius_from_matrices,
-    compute_stability_radius_grid_search,
     compute_stability_radius_heatmap,
     create_sliding_windows,
     estimate_linear_dynamics_ols,
@@ -13,8 +12,10 @@ from .eeg_fragility import (
     save_fragility_npz,
 )
 from .fragility_algorithm import (
+    FragilityMethod,
     compute_level_value,
     compute_stability_radius,
+    compute_stability_radius_grid_search,
     compute_regularized_level_value,
     extract_unit_circle_angles,
     filter_level_crossings,
@@ -27,6 +28,7 @@ __all__ = [
     "compute_stability_radius_from_matrices",
     "compute_stability_radius_grid_search",
     "compute_stability_radius_heatmap",
+    "FragilityMethod",
     "compute_level_value",
     "compute_stability_radius",
     "compute_regularized_level_value",

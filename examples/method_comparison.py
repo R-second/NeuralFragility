@@ -1,4 +1,4 @@
-"""Compare grid search and the proposed level-set method."""
+"""Compare grid search and the branch filtering method."""
 
 from __future__ import annotations
 
@@ -59,14 +59,14 @@ def run_grid_search(
     return max_val, elapsed
 
 
-def run_proposed_method(
+def run_branch_filtering_method(
     transition_matrix: FloatArray,
     channel_index: int,
     epsilon: float,
     gamma: float = 0.01,
     max_iter: int = 20,
 ) -> tuple[float, float]:
-    """Run the proposed level-set method and return the peak level value and computation time.
+    """Run the branch filtering method and return the peak level value and computation time.
 
     Args:
         transition_matrix: The transition matrix to evaluate.
@@ -102,7 +102,7 @@ def run_comparison_experiment(
     spectral_radius: float,
     seed: int,
 ) -> ComparisonResults:
-    """Compare the grid search and proposed method across multiple trials and return aggregated results.
+    """Compare the grid search and branch filtering method across multiple trials and return aggregated results.
 
     Args:
         matrix_size: The size of the matrix to generate.
@@ -122,15 +122,15 @@ def run_comparison_experiment(
 
     avg_grid_times = np.zeros(len(grid_resolutions))
     avg_grid_errors = np.zeros(len(grid_resolutions))
-    avg_prop_times = np.zeros(len(epsilon_values))
-    avg_prop_errors = np.zeros(len(epsilon_values))
+    avg_branch_filtering_times = np.zeros(len(epsilon_values))
+    avg_branch_filtering_errors = np.zeros(len(epsilon_values))
 
     print(f"Comparing methods for N={matrix_size} with {num_trials} trials...")
     for trial_idx in range(num_trials):
         A = generate_stable_matrix(
             matrix_size, spectral_radius=spectral_radius, rng=rng
         )
-        true_val, _ = run_proposed_method(
+        true_val, _ = run_branch_filtering_method(
             A, k_idx, epsilon=1e-12, gamma=gamma_algo, max_iter=max_iter
         )
 
@@ -140,18 +140,18 @@ def run_comparison_experiment(
             avg_grid_errors[idx] += abs(val - true_val)
 
         for idx, epsilon in enumerate(epsilon_values):
-            val, elapsed = run_proposed_method(
+            val, elapsed = run_branch_filtering_method(
                 A, k_idx, epsilon=epsilon, gamma=gamma_algo, max_iter=max_iter
             )
-            avg_prop_times[idx] += elapsed
-            avg_prop_errors[idx] += abs(val - true_val)
+            avg_branch_filtering_times[idx] += elapsed
+            avg_branch_filtering_errors[idx] += abs(val - true_val)
 
         print(f"Trial {trial_idx + 1:>3}/{num_trials}: reference level={true_val:.6f}")
 
     avg_grid_times /= num_trials
     avg_grid_errors /= num_trials
-    avg_prop_times /= num_trials
-    avg_prop_errors /= num_trials
+    avg_branch_filtering_times /= num_trials
+    avg_branch_filtering_errors /= num_trials
 
     return {
         "matrix_size": matrix_size,
@@ -160,8 +160,8 @@ def run_comparison_experiment(
         "epsilon_values": np.array(epsilon_values, dtype=float),
         "avg_grid_times": avg_grid_times,
         "avg_grid_errors": avg_grid_errors,
-        "avg_prop_times": avg_prop_times,
-        "avg_prop_errors": avg_prop_errors,
+        "avg_branch_filtering_times": avg_branch_filtering_times,
+        "avg_branch_filtering_errors": avg_branch_filtering_errors,
     }
 
 
@@ -214,8 +214,12 @@ def plot_single_comparison(
 
     grid_times = np.maximum(results["avg_grid_times"], 1e-16)
     grid_errors = np.maximum(results["avg_grid_errors"], 1e-16)
-    prop_times = np.maximum(results["avg_prop_times"], 1e-16)
-    prop_errors = np.maximum(results["avg_prop_errors"], 1e-16)
+    branch_filtering_times = np.maximum(
+        results["avg_branch_filtering_times"], 1e-16
+    )
+    branch_filtering_errors = np.maximum(
+        results["avg_branch_filtering_errors"], 1e-16
+    )
 
     plt.loglog(
         grid_times,
@@ -238,10 +242,10 @@ def plot_single_comparison(
         )
 
     plt.loglog(
-        prop_times,
-        prop_errors,
+        branch_filtering_times,
+        branch_filtering_errors,
         "*-",
-        label="Proposed Method",
+        label="Branch Filtering Method",
         color="red",
         markersize=10,
     )
@@ -249,7 +253,7 @@ def plot_single_comparison(
     for i, epsilon in enumerate(epsilon_values):
         plt.annotate(
             f"eps={epsilon:.0e}",
-            (prop_times[i], prop_errors[i]),
+            (branch_filtering_times[i], branch_filtering_errors[i]),
             textcoords="offset points",
             xytext=(30, 0),
             ha="center",
@@ -293,8 +297,12 @@ def plot_combined_comparison(
 
         grid_times = np.maximum(results["avg_grid_times"], 1e-16)
         grid_errors = np.maximum(results["avg_grid_errors"], 1e-16)
-        prop_times = np.maximum(results["avg_prop_times"], 1e-16)
-        prop_errors = np.maximum(results["avg_prop_errors"], 1e-16)
+        branch_filtering_times = np.maximum(
+            results["avg_branch_filtering_times"], 1e-16
+        )
+        branch_filtering_errors = np.maximum(
+            results["avg_branch_filtering_errors"], 1e-16
+        )
 
         plt.loglog(
             grid_times,
@@ -319,10 +327,10 @@ def plot_combined_comparison(
                 )
 
         plt.loglog(
-            prop_times,
-            prop_errors,
+            branch_filtering_times,
+            branch_filtering_errors,
             "*" + line_style,
-            label=f"Proposed Method N={matrix_size}",
+            label=f"Branch Filtering Method N={matrix_size}",
             markersize=12,
             color="red",
             alpha=0.7,
@@ -332,7 +340,7 @@ def plot_combined_comparison(
             if j % 2 == 0:
                 plt.annotate(
                     f"eps={epsilon:.0e}",
-                    (prop_times[j], prop_errors[j]),
+                    (branch_filtering_times[j], branch_filtering_errors[j]),
                     textcoords="offset points",
                     xytext=(10, -8),
                     ha="left",
@@ -384,7 +392,7 @@ def save_figure(
 def main() -> None:
     """Parse CLI arguments and execute comparison experiments or plot existing results."""
     parser = argparse.ArgumentParser(
-        description="Compare grid search and proposed method runtimes/errors."
+        description="Compare grid search and branch filtering method runtimes/errors."
     )
     parser.add_argument(
         "--sizes", type=int, nargs="+", default=[100], help="Matrix sizes to run."
@@ -404,7 +412,7 @@ def main() -> None:
         nargs="+",
         default=DEFAULT_EPSILON_VALUES,
         type=float,
-        help="Convergence tolerances for the proposed method.",
+        help="Convergence tolerances for the branch filtering method.",
     )
     parser.add_argument("--k", type=int, default=0, help="Perturbed node index.")
     parser.add_argument("--gamma", type=float, default=1e-3, help="Algorithm gamma.")

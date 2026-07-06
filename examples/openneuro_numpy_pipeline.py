@@ -119,8 +119,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--method",
-        choices=["proposed", "grid"],
-        default="proposed",
+        choices=["branch filtering method", "grid search"],
+        default="branch filtering method",
         help="Fragility solver.",
     )
     parser.add_argument(

@@ -105,12 +105,14 @@ value, theta, _ = compute_stability_radius(
     transition_matrix=A,
     channel_index=0,
     gamma=0.01,
+    method="branch filtering method",
+    # method="grid search"
 )
 
 print(value)
 ```
 
-Here, `channel_index` specifies which channel is perturbed.
+Here, `channel_index` specifies which channel is perturbed and `method` specifies which algorithm to use. The default is the branch filtering method, which is more accurate than the grid search method. The grid search method is also available for comparison.
 
 ### Compute a fragility heatmap from EEG-like data
 
@@ -188,7 +190,7 @@ The examples are divided into four groups:
 | EEG pipeline | `examples/openneuro_numpy_pipeline.py` | NumPy-only OpenNeuro-style pipeline | 
 | Numerical experiment | `examples/level_set_behavior.py` | Level-set behavior visualization | 
 | Numerical experiment | `examples/convergence_analysis.py` | Convergence analysis on random stable matrices | 
-| Numerical experiment | `examples/method_comparison.py` | Grid search vs proposed method comparison | 
+| Numerical experiment | `examples/method_comparison.py` | Grid search vs branch filtering method comparison | 
 | Real EEG data | `examples/download_mne_epilepsy_ecog.py` | Download a small MNE epilepsy ECoG sample | 
 | Real EEG data | `examples/openneuro_real_data_pipeline.py` | Run the BrainVision / OpenNeuro-style pipeline | 
 
@@ -298,7 +300,7 @@ The full default setting may take longer, so it is better to start with the smok
 
 ### `examples/method_comparison.py`
 
-This script compares grid search with the proposed level-set method.
+This script compares grid search with the branch filtering method.
 
 Default execution:
 
@@ -400,4 +402,3 @@ python examples/openneuro_real_data_pipeline.py \
   --subject-prefix sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01 \
   --max-windows 5
 ```
-

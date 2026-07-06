@@ -310,12 +310,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--method",
-        choices=["proposed", "grid"],
-        default="proposed",
+        choices=["branch filtering method", "grid search"],
+        default="branch filtering method",
         help="Fragility solver.",
     )
     parser.add_argument(
-        "--grid-points", type=int, default=100, help="Grid points when method=grid."
+        "--grid-points",
+        type=int,
+        default=100,
+        help='Grid points when method="grid search".',
     )
     parser.add_argument("--gamma", type=float, default=0.01, help="Algorithm gamma.")
     parser.add_argument(

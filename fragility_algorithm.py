@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TypeAlias, Any
+from typing import Literal, TypeAlias, Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -12,6 +12,7 @@ from scipy.linalg import eig
 FloatArray: TypeAlias = NDArray[np.floating]
 ComplexArray: TypeAlias = NDArray[np.complexfloating]
 IterationLog: TypeAlias = list[dict[str, Any]]
+FragilityMethod: TypeAlias = Literal["branch filtering method", "grid search"]
 
 
 def compute_level_value(
@@ -359,6 +360,28 @@ def maximize_level_value(
     return current_level, best_theta, iteration_log
 
 
+def compute_stability_radius_grid_search(
+    transition_matrix: FloatArray,
+    channel_index: int,
+    num_points: int = 1000,
+) -> float:
+    """Approximate Stability Radius using grid search.
+
+    Args:
+        transition_matrix: transition matrix of shape `(n_channels, n_channels)`.
+        channel_index: index of the channel or node to compute stability radius for.
+        num_points: number of grid points to evaluate on `[0, pi]`.
+
+    Returns:
+        Approximated stability radius value as the reciprocal of the maximum level value.
+    """
+    thetas = np.linspace(0, np.pi, num_points)
+    peak_level = max(
+        compute_level_value(transition_matrix, channel_index, theta) for theta in thetas
+    )
+    return 1.0 / peak_level if peak_level != 0 else np.inf
+
+
 def compute_stability_radius(
     transition_matrix: FloatArray,
     channel_index: int,
@@ -366,20 +389,49 @@ def compute_stability_radius(
     max_iter: int = 20,
     print_progress: bool = True,
     epsilon: float = 1e-6,
+    method: FragilityMethod = "branch filtering method",
+    grid_points: int = 1000,
 ) -> tuple[float, float, IterationLog]:
-    """Compute the stability radius of a given channel using the level-set method.
+    """Compute the stability radius of a given channel.
 
     Args:
         transition_matrix: transition matrix of shape `(n_channels, n_channels)`.
         channel_index: index of the channel or node to compute stability radius for.
-        gamma: regularization parameter.
-        max_iter: maximum number of level-set iterations.
-        print_progress: whether to print iteration logs to standard output.
-        epsilon: minimum improvement width for convergence criterion.
+        gamma: regularization parameter when `method="branch filtering method"`.
+        max_iter: maximum number of level-set iterations when `method="branch filtering method"`.
+        print_progress: whether to print iteration logs to standard output when `method="branch filtering method"`.
+        epsilon: minimum improvement width for convergence criterion when `method="branch filtering method"`.
+        method: stability radius computation method, either `"branch filtering method"` or `"grid search"`.
+        grid_points: number of grid points to use when `method="grid search"`.
 
     Returns:
         Best stability radius value, corresponding angle, and diagnostic log for each iteration.
     """
+    if method == "grid search":
+        thetas = np.linspace(0, np.pi, grid_points)
+        levels = np.array(
+            [
+                compute_level_value(transition_matrix, channel_index, theta)
+                for theta in thetas
+            ]
+        )
+        peak_index = int(np.argmax(levels))
+        peak_level = float(levels[peak_index])
+        peak_theta = float(thetas[peak_index])
+        stability_radius = 1.0 / peak_level if peak_level != 0 else np.inf
+        iteration_log = [
+            {
+                "method": method,
+                "grid_points": grid_points,
+                "level": peak_level,
+                "theta": peak_theta,
+            }
+        ]
+        return stability_radius, peak_theta, iteration_log
+
+    if method != "branch filtering method":
+        raise ValueError("method must be 'branch filtering method' or 'grid search'.")
+
     peak_level, peak_theta, iteration_log = maximize_level_value(
         transition_matrix,
         channel_index,

@@ -7,20 +7,25 @@ estimate one transition matrix from one window use `(n_times, n_channels)`.
 from __future__ import annotations
 
 from os import PathLike
-from typing import Any, Literal, TypeAlias
+from typing import Any, TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
 
 try:
-    from .fragility_algorithm import compute_level_value, compute_stability_radius
+    from .fragility_algorithm import (
+        FragilityMethod,
+        compute_stability_radius,
+    )
 except ImportError:
-    from fragility_algorithm import compute_level_value, compute_stability_radius
+    from fragility_algorithm import (
+        FragilityMethod,
+        compute_stability_radius,
+    )
 
 FloatArray: TypeAlias = NDArray[np.floating]
 StringArray: TypeAlias = NDArray[np.str_]
 PathLikeStr: TypeAlias = str | PathLike[str]
-FragilityMethod: TypeAlias = Literal["proposed", "grid"]
 
 
 def _get_data_and_times(
@@ -214,32 +219,10 @@ def model_fitting_errors(
     return errors
 
 
-def compute_stability_radius_grid_search(
-    transition_matrix: FloatArray,
-    channel_index: int,
-    num_points: int = 1000,
-) -> float:
-    """Approximate Stability Radius using grid search.
-
-    Args:
-        transition_matrix: Transition matrix of shape `(n_channels, n_channels)`.
-        channel_index: Channel index for which to compute stability radius.
-        num_points: Number of grid points to evaluate on `[0, pi]`.
-
-    Returns:
-        Approximated stability radius value as the reciprocal of the maximum level value.
-    """
-    thetas = np.linspace(0, np.pi, num_points)
-    peak_level = max(
-        compute_level_value(transition_matrix, channel_index, theta) for theta in thetas
-    )
-    return 1.0 / peak_level if peak_level != 0 else np.inf
-
-
 def compute_stability_radius_from_matrices(
     transition_matrices: FloatArray,
     gamma: float = 0.01,
-    method: FragilityMethod = "proposed",
+    method: FragilityMethod = "branch filtering method",
     grid_points: int = 1000,
     max_iter: int = 20,
     epsilon: float = 1e-6,
@@ -250,10 +233,10 @@ def compute_stability_radius_from_matrices(
     Args:
         transition_matrices: Array of shape `(n_windows, n_channels, n_channels)` representing the transition matrices.
         gamma: Regularization parameter for the level set method.
-        method: Stability radius computation method, either `"proposed"` or `"grid"`.
-        grid_points: Number of grid points to use when `method="grid"`.
-        max_iter: Maximum number of iterations when `method="proposed"`.
-        epsilon: Convergence threshold when `method="proposed"`.
+        method: Stability radius computation method, either `"branch filtering method"` or `"grid search"`.
+        grid_points: Number of grid points to use when `method="grid search"`.
+        max_iter: Maximum number of iterations when `method="branch filtering method"`.
+        epsilon: Convergence threshold when `method="branch filtering method"`.
         progress: Whether to display a progress bar if possible.
 
     Returns:
@@ -283,23 +266,16 @@ def compute_stability_radius_from_matrices(
     for window_index in iterator:
         transition_matrix = transition_matrices[window_index]
         for channel_index in range(n_channels):
-            if method == "proposed":
-                value, _, _ = compute_stability_radius(
-                    transition_matrix,
-                    channel_index,
-                    gamma=gamma,
-                    max_iter=max_iter,
-                    print_progress=False,
-                    epsilon=epsilon,
-                )
-            elif method == "grid":
-                value = compute_stability_radius_grid_search(
-                    transition_matrix,
-                    channel_index,
-                    num_points=grid_points,
-                )
-            else:
-                raise ValueError("method must be 'proposed' or 'grid'.")
+            value, _, _ = compute_stability_radius(
+                transition_matrix,
+                channel_index,
+                gamma=gamma,
+                max_iter=max_iter,
+                print_progress=False,
+                epsilon=epsilon,
+                method=method,
+                grid_points=grid_points,
+            )
             raw_stability_radius[channel_index, window_index] = value
 
     return raw_stability_radius
@@ -312,6 +288,10 @@ def compute_stability_radius_heatmap(
     step_sec: float = 0.1,
     gamma: float = 0.01,
     verbose: bool = False,
+    method: FragilityMethod = "branch filtering method",
+    grid_points: int = 1000,
+    max_iter: int = 20,
+    epsilon: float = 1e-6,
 ) -> tuple[FloatArray, FloatArray]:
     """Compute Stability Radius heatmap from EEG array.
 
@@ -322,6 +302,10 @@ def compute_stability_radius_heatmap(
         step_sec: Window step size in seconds.
         gamma: Regularization parameter for the level set method.
         verbose: Whether to display progress if possible.
+        method: Stability radius computation method, either `"branch filtering method"` or `"grid search"`.
+        grid_points: Number of grid points to use when `method="grid search"`.
+        max_iter: Maximum number of iterations when `method="branch filtering method"`.
+        epsilon: Convergence threshold when `method="branch filtering method"`.
 
     Returns:
         Stability Radius heatmap and the center times of each window.
@@ -339,6 +323,10 @@ def compute_stability_radius_heatmap(
     heatmap = compute_stability_radius_from_matrices(
         transition_matrices,
         gamma=gamma,
+        method=method,
+        grid_points=grid_points,
+        max_iter=max_iter,
+        epsilon=epsilon,
         progress=verbose,
     )
     return heatmap, times
@@ -368,6 +356,10 @@ def compute_neural_fragility_heatmap(
     step_sec: float = 0.1,
     gamma: float = 0.01,
     verbose: bool = False,
+    method: FragilityMethod = "branch filtering method",
+    grid_points: int = 1000,
+    max_iter: int = 20,
+    epsilon: float = 1e-6,
 ) -> tuple[FloatArray, FloatArray]:
     """Compute neural fragility heatmap from EEG array.
 
@@ -378,12 +370,25 @@ def compute_neural_fragility_heatmap(
         step_sec: Window step size in seconds.
         gamma: Regularization parameter for the level set method.
         verbose: Whether to display progress if possible.
+        method: Stability radius computation method, either `"branch filtering method"` or `"grid search"`.
+        grid_points: Number of grid points to use when `method="grid search"`.
+        max_iter: Maximum number of iterations when `method="branch filtering method"`.
+        epsilon: Convergence threshold when `method="branch filtering method"`.
 
     Returns:
         Neural fragility heatmap and the center times of each window.
     """
     heatmap, times = compute_stability_radius_heatmap(
-        eeg, fs, window_sec, step_sec, gamma, verbose
+        eeg,
+        fs,
+        window_sec=window_sec,
+        step_sec=step_sec,
+        gamma=gamma,
+        verbose=verbose,
+        method=method,
+        grid_points=grid_points,
+        max_iter=max_iter,
+        epsilon=epsilon,
     )
     neural_fragility = calculate_neural_fragility(heatmap)
     return neural_fragility, times
