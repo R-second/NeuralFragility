@@ -141,25 +141,25 @@ print(heatmap.shape)
 print(times.shape)
 ```
 
-### Compute fragility from pre-estimated transition matrices
+### Compute stability radius from pre-estimated transition matrices
 
-Use `compute_fragility_from_matrices` when you have already estimated transition matrices for each time window.
+Use `compute_stability_radius_from_matrices` when you have already estimated transition matrices for each time window.
 
 ```python
 import numpy as np
 
-from NeuralFragility.eeg_fragility import compute_fragility_from_matrices
+from NeuralFragility.eeg_fragility import compute_stability_radius_from_matrices
 
 # Example transition matrices
 # Shape: n_windows x n_channels x n_channels
 transition_matrices = np.random.randn(10, 4, 4) * 0.1
 
-fragility = compute_fragility_from_matrices(
+stability_radius = compute_stability_radius_from_matrices(
     transition_matrices=transition_matrices,
     gamma=0.01,
 )
 
-print(fragility.shape)
+print(stability_radius.shape)
 ```
 
 ### When to use each function
