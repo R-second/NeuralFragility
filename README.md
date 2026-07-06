@@ -21,7 +21,7 @@ scipy
 matplotlib
 ```
 
-Python `>=3.9` is recommended.
+Python `>=3.10` is recommended.
 
 ### Additional requirements for real EEG examples
 
